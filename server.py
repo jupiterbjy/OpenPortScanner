@@ -15,25 +15,31 @@ async def show_progress():
     pass
 
 
-async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-    writer.close()
-
-
 async def worker_server(work_q: asyncio.Queue, timeout=400):
 
-    port = await work_q.get()
-    server = await asyncio.start_server(handler, port=port)
-    print(f"Listening Port {port}")
-    async with server:
-        await server.serve_forever()
+    # https://soooprmx.com/archives/11442
+    async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        print(f"passing {port}")
+        writer.write(port)
+        writer.close()
+        server.close()
+
+        work_q.task_done()
+
+    while True:
+        port = await work_q.get()
+        server = await asyncio.start_server(handler, port=port)
+        print(f"Listening Port {port}")
+        async with server:
+            await server.start_serving()
 
 
-def generate_works(max_port, exclude=80):
+def generate_works(max_port, exclude=(80, 443)):
     work = asyncio.Queue()
-    for port in range(max_port + 1):  # no convenient way to do this?
-        if port == 80:
+    for port in range(max_port):  # no convenient way to do this?
+        if port + 1 in exclude:
             continue
-        work.put_nowait(port)
+        work.put_nowait(port + 1)
 
     return work
 
@@ -49,7 +55,9 @@ async def server_sweep_port(socket_, max_port=66535):
     print(f"Connection Successful At {address}:{port}")
     print("Starting Port Sweep.")
 
-    await works.join()
+    tasks = [worker_server(works) for _ in range(6)]
+
+    await asyncio.gather(*tasks)
 
 
 def cli_server():
@@ -60,8 +68,7 @@ def cli_server():
     server_primary = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_primary.bind((socket.gethostname(), 80))
 
-    asyncio.run(server_sweep_port(server_primary))
-
+    asyncio.run(server_sweep_port(server_primary, 300))
 
 
 if __name__ == '__main__':
