@@ -7,6 +7,9 @@ INITIAL_PORT = 80
 ENCODING = 'utf-8'
 
 
+# Not working..
+
+
 def get_external_ip():
     req = request.urlopen('https://api.ipify.org')
     data = req.read()

@@ -30,7 +30,7 @@ def server(port):
     try:
         sock.bind((socket.gethostname(), port))
     except OSError:
-        print(f"[S][FATAL] Port 80 already in use!")
+        print(f"[FATAL] Port 80 already in use!")
         return False
 
     sock.listen(1)
