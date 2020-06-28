@@ -5,6 +5,7 @@ import socket
 INITIAL_PORT = 80
 WORKERS = 3
 EOF = b'E'
+EOL = b'END'
 PASS = b'P'
 ENCODING = 'utf-8'
 
@@ -12,17 +13,17 @@ ENCODING = 'utf-8'
 async def worker_client(id_: int, ip, work_queue: asyncio.Queue, results: asyncio.Queue):
     print(f"[C{id_}] Worker {id_} Started for {ip}")
 
-    while work_queue.empty():
-        await asyncio.sleep(0.05)
     current_port = await work_queue.get()
-    print(current_port)
 
     async def server(port):
-        print(f"Port {port} listening")
+        print(f"[C{id_}] Port {port} listening")
         s_reader, s_writer = await asyncio.open_connection(ip, port)
-        s_writer.write(PASS)
+        print(f"[C{id_}] Port {port} Send")
+        s_writer.write(PASS + EOL)
+        await s_writer.drain()
         s_writer.close()
-        data = await s_reader.read(1024)
+        data = await s_reader.readuntil(EOL)
+        print(data.decode(ENCODING))
 
         if data == EOF:
             raise EOFError(f"Worker {id_} complete.")
@@ -32,11 +33,9 @@ async def worker_client(id_: int, ip, work_queue: asyncio.Queue, results: asynci
             await asyncio.wait_for(server(current_port), timeout=5)
         except asyncio.TimeoutError:
             print(f"Port {current_port} timeout!")
-        except EOFError as err:
-            print(err)
-            break
         else:
             await results.put(current_port)
+            print(results)
 
         current_port = await work_queue.get()
 
@@ -46,38 +45,25 @@ async def main_client_run(ip):
     work_queue = asyncio.Queue()
     result = asyncio.Queue()
 
-    # not running..
-
     reader: asyncio.StreamReader
     writer: asyncio.StreamWriter
     reader, writer = await asyncio.open_connection(ip, INITIAL_PORT)
 
-    try:
-        print("[C] Connection established, waiting for hello.")
-        server_hello = await reader.read(1024)
-
-    except ConnectionResetError as err:
-        print(f"[C][FATAL] Server connection halted!")  # change this to logging
-        writer.close()
-
-        # This don't print..?
-        raise asyncio.CancelledError('[C][FATAL] Stopping') from err
-
-    print(f"[C] Message from Server: {server_hello.decode(ENCODING)}")
+    server_hello = await reader.readuntil(EOL)
+    print(f"[C] {server_hello.strip(EOL).decode(ENCODING)}")
+    writer.write(b'Client Hello' + EOL)
+    await writer.drain()
 
     tasks = []
+
     for i in range(WORKERS):
-        data = await reader.read(1024)
-        port = int(data.decode(ENCODING))
-        print(f"Got {port}")
-        work_queue.put_nowait(port)  # I doubt..
         tasks.append(asyncio.create_task(worker_client(i, ip, work_queue, result)))
 
     while True:
-        data = await reader.read(1024)
-        port = int(data.decode(ENCODING))
+        data = await reader.readuntil(EOL)
+        port = int(data.strip(EOL).decode(ENCODING))
         print(f"Got {port}")
-        await work_queue.put(port)
+        work_queue.put_nowait(port)
 
 
 def client_main():

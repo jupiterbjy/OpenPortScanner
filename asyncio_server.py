@@ -15,12 +15,6 @@ class Success(Exception):
     pass
 
 
-async def list_job_state(s):
-    while True:
-        for port in s:
-            pass
-
-
 async def worker(id_: int, port_queue: asyncio.Queue, pass_queue: asyncio.Queue):
     print(f"[S{id_}] Worker {id_} Started")
     current_port = await port_queue.get()
@@ -31,20 +25,19 @@ async def worker(id_: int, port_queue: asyncio.Queue, pass_queue: asyncio.Queue)
 
         # TODO: add echo to port it's hosting on
         # Do i need to check if data is same? Client only sends PASS.
-        data = await reader.read(1024)
-
-        if data == PASS:
-            print(f'[S{id_}] Port {current_port} done!')
-        else:
-            print(f"[S{id_}] Wrong data {data.decode()} received")
+        data = await reader.readuntil(EOL)
+        print(data.decode(ENCODING))
 
         if port_queue.empty():
-            writer.write(EOF)
+            writer.write(EOF + EOL)
+            await writer.drain()
             writer.close()
             raise EOFError(f"[S{id_}] Worker {id_} complete.")
 
-        writer.write(PASS)
+        writer.write(PASS + EOL)
+        await writer.drain()
         writer.close()
+
         raise Success
 
     async def server(port):
@@ -57,10 +50,6 @@ async def worker(id_: int, port_queue: asyncio.Queue, pass_queue: asyncio.Queue)
     while True:
         try:
             await asyncio.wait_for(server(current_port), timeout=5)
-
-        except Success:
-            print(f'[S{id_}][DEBUG] Success')
-            pass
 
         except asyncio.TimeoutError:
             print(f"[S{id_}] port {current_port} timeout!")
@@ -84,19 +73,23 @@ async def main_server_run():
         tasks.append(asyncio.create_task(worker(i, port_queue, pass_queue)))
 
     async def main_handler(reader: StreamReader, writer: StreamWriter):
-        writer.write(b'Server Running')
-        # await asyncio.gather(*tasks)
+        writer.write(b'Server Hello' + EOL)
+        await writer.drain()
+        recv = await reader.readuntil(EOL)
+        print(f"[S] {recv.strip(EOL).decode(ENCODING)}")
 
         while True:
-            while not pass_queue.empty():
+            if not pass_queue.empty():
                 next_port = await pass_queue.get()
-                writer.write(str(next_port).encode(ENCODING))
+
+                writer.write(str(next_port).encode(ENCODING) + EOL)
+                await writer.drain()
                 print(f"[S] Sending Port {next_port}")
 
     try:
         server_coroutine = await asyncio.start_server(main_handler, port=80)
     except OSError:
-        print(f"[S][WARNING] Port {INITIAL_PORT} in use. Cannot Start.")
+        print(f"[S][FATAL] Port {INITIAL_PORT} in use. Cannot Start.")
     else:
         async with server_coroutine:
             await server_coroutine.serve_forever()
@@ -112,11 +105,19 @@ async def works(max_size=66535, exclude=(80, 443)):
     return work
 
 
+async def handler_new(reader: StreamReader, writer: StreamWriter):
+    while True:
+        writer.write()
+
+
 def server_main():
     ip = get_external_ip()
     work = works(30)
+    loop = asyncio.get_event_loop()
+    server = loop.run_until_complete(main_server_run())
+
     if server_initial_connection(ip):
-        asyncio.run(main_server_run())
+        loop.run(main_server_run())
     else:
         print(f"[S][FATAL] Server stopped.")
 
