@@ -34,15 +34,6 @@ async def worker_server(work_q: asyncio.Queue, timeout=400):
             await server.start_serving()
 
 
-def generate_works(max_port, exclude=(80, 443)):
-    work = asyncio.Queue()
-    for port in range(max_port):  # no convenient way to do this?
-        if port + 1 in exclude:
-            continue
-        work.put_nowait(port + 1)
-
-    return work
-
 
 async def server_sweep_port(socket_, max_port=66535):
     works = generate_works(max_port)

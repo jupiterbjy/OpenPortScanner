@@ -1,66 +1,85 @@
-import socket
 import asyncio
-from server import generate_works, get_ext_ip
-
-# find port with this Power-shell script
-# Get-Process -Id (Get-NetTCPConnection -LocalPort portNumber).OwningProcess
+import socket
 
 
-async def worker_client(result_q, primary, ip, timeout=4):
-    port = None
+INITIAL_PORT = 80
+WORKERS = 3
+EOF = b'E'
+PASS = b'P'
+ENCODING = 'utf-8'
 
-    async def connect():
-        nonlocal port
 
-        try:
-            reader: asyncio.StreamReader
-            writer: asyncio.StreamWriter
-            reader, writer = await asyncio.open_connection(ip, port, ssl=False)
+async def worker_client(id_: int, ip, work_queue: asyncio.Queue, results: asyncio.Queue):
+    print(f"[C{id_}] Worker {id_} Started for {ip}")
 
-        except (TypeError, OSError):
-            # using this method to skip 'if' checking
-            # checking if port is none is waste of time.
+    # Possible crash here
+    current_port = await work_queue.get()
+    print(current_port)
 
-            reader, writer = await asyncio.open_connection(ip, primary, ssl=False)
+    async def server(port):
+        print(f"Port {port} listening")
+        s_reader, s_writer = await asyncio.open_connection(ip, port)
+        s_writer.write(PASS)
+        s_writer.close()
+        data = await s_reader.read(1024)
 
-        data: bytes = await reader.read(1024)
-        print(data)
-        port = int(data.decode())
-        writer.close()
-        # if not port:
-        # using 0 to mean end of task.
+        if data == EOF:
+            raise EOFError(f"Worker {id_} complete.")
 
     while True:
-
         try:
-            result = await asyncio.wait_for(connect(), timeout=timeout) is not None
+            await asyncio.wait_for(server(current_port), timeout=3)
         except asyncio.TimeoutError:
-            result = False
+            print(f"Port {current_port} timeout!")
+        except EOFError as err:
+            print(err)
+            break
+        else:
+            await results.put(current_port)
 
-        print(port, result)
-        await result_q.put((port, result))
+        current_port = await work_queue.get()
 
 
-async def client_sweep_port(ip, socket_primary, max_port=65535):
-    results = asyncio.Queue()
+async def main_client_run(ip):
+    print(f"[S] Async Server Started")
+    work_queue = asyncio.Queue()
+    result = asyncio.Queue()
 
-    tasks = [worker_client(results, p + 1, ip) for p in range(6)]
+    reader: asyncio.StreamReader
+    writer: asyncio.StreamWriter
+    reader, writer = await asyncio.open_connection(ip, INITIAL_PORT)
 
+    tasks = [worker_client(i, ip, work_queue, result) for i in range(WORKERS)]
     await asyncio.gather(*tasks)
 
+    async def convert():
+        data = await reader.read(1024)
+        return int(data.decode(ENCODING))
 
-def cli_main():
-    """
-    Assuming at least 80 port is open.
-    """
-    print("Started")
+    while True:
+        port = await convert()
+        print(f"Got {port}")
+        await work_queue.put(port)
+
+
+def client_main():
+    # ip = input("[C] input server IP: ")
     ip = "218.148.42.133"
-    client_primary = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client_primary.connect((ip, 80))
+    if client_initial_connection(ip):
+        asyncio.run(main_client_run(ip))
 
-    print("Handshake successful, starting sweep")
-    asyncio.run(client_sweep_port(ip, client_primary, 300))
+
+def client_initial_connection(ip):
+    print(f"[C] Waiting for server at {ip}")
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.connect((ip, INITIAL_PORT))
+
+    print("[C] Connection successful, Starting asyncio Client")
+    sock.close()
+    # TODO: add timeout condition
+    return True
 
 
 if __name__ == '__main__':
-    cli_main()
+    client_main()
