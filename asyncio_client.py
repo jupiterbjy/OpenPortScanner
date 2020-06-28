@@ -12,7 +12,8 @@ ENCODING = 'utf-8'
 async def worker_client(id_: int, ip, work_queue: asyncio.Queue, results: asyncio.Queue):
     print(f"[C{id_}] Worker {id_} Started for {ip}")
 
-    # Possible crash here
+    while work_queue.empty():
+        await asyncio.sleep(0.05)
     current_port = await work_queue.get()
     print(current_port)
 
@@ -28,7 +29,7 @@ async def worker_client(id_: int, ip, work_queue: asyncio.Queue, results: asynci
 
     while True:
         try:
-            await asyncio.wait_for(server(current_port), timeout=3)
+            await asyncio.wait_for(server(current_port), timeout=5)
         except asyncio.TimeoutError:
             print(f"Port {current_port} timeout!")
         except EOFError as err:
@@ -41,23 +42,40 @@ async def worker_client(id_: int, ip, work_queue: asyncio.Queue, results: asynci
 
 
 async def main_client_run(ip):
-    print(f"[S] Async Server Started")
+    print(f"[C] Client Main Started")
     work_queue = asyncio.Queue()
     result = asyncio.Queue()
+
+    # not running..
 
     reader: asyncio.StreamReader
     writer: asyncio.StreamWriter
     reader, writer = await asyncio.open_connection(ip, INITIAL_PORT)
 
-    tasks = [worker_client(i, ip, work_queue, result) for i in range(WORKERS)]
-    await asyncio.gather(*tasks)
+    try:
+        print("[C] Connection established, waiting for hello.")
+        server_hello = await reader.read(1024)
 
-    async def convert():
+    except ConnectionResetError as err:
+        print(f"[C][FATAL] Server connection halted!")  # change this to logging
+        writer.close()
+
+        # This don't print..?
+        raise asyncio.CancelledError('[C][FATAL] Stopping') from err
+
+    print(f"[C] Message from Server: {server_hello.decode(ENCODING)}")
+
+    tasks = []
+    for i in range(WORKERS):
         data = await reader.read(1024)
-        return int(data.decode(ENCODING))
+        port = int(data.decode(ENCODING))
+        print(f"Got {port}")
+        work_queue.put_nowait(port)  # I doubt..
+        tasks.append(asyncio.create_task(worker_client(i, ip, work_queue, result)))
 
     while True:
-        port = await convert()
+        data = await reader.read(1024)
+        port = int(data.decode(ENCODING))
         print(f"Got {port}")
         await work_queue.put(port)
 
@@ -66,7 +84,11 @@ def client_main():
     # ip = input("[C] input server IP: ")
     ip = "218.148.42.133"
     if client_initial_connection(ip):
-        asyncio.run(main_client_run(ip))
+        try:
+            asyncio.run(main_client_run(ip))
+        except asyncio.CancelledError as err:
+            # This section just don't run.
+            print(err)
 
 
 def client_initial_connection(ip):
