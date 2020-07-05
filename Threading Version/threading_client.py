@@ -1,8 +1,12 @@
 import socket
 import pickle
 import threading
-from queue import Queue
-from SharedData import SharedModules
+try:
+    from SharedData import SharedModules
+except ImportError:
+    from sys import path
+    path.insert(1, '..')
+    from SharedData import SharedModules
 
 # setup
 config = SharedModules.prepare(__file__)
