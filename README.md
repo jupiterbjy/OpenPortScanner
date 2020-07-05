@@ -16,15 +16,4 @@ Other repositories without it would have those in PyCharm Scratch folder, not in
 
 ---
 
-Currently consecutive version of TCP port checker is working.  
-To use it, don't forget to include `SharedData` folder with script!
-
-Like this:
-```
-<SOMETHING> Verison
-┠ <SOMETHING>_server.py
-┠ <SOMETHING>_client.py
-┗ SharedData
-  ┠ config.json  << edit this.
-  ┗ SharedModules.py
-```
+Currently Threading, Consecutive versions of TCP port checkers are working. Example above is threaded version.
