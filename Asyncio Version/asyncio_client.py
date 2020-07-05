@@ -1,7 +1,6 @@
 import asyncio
 import socket
 
-
 INITIAL_PORT = 80
 WORKERS = 3
 EOF = b'E'

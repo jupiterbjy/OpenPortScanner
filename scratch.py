@@ -10,10 +10,6 @@ class Break(Exception):
     pass
 
 
-def get_external_ip():
-    req = request.urlopen('https://api.ipify.org')
-    data = req.read()
-    return data.decode('utf-8')
 
 
 def works(max_size=66535, exclude=(80, 443)) -> asyncio.Queue:
