@@ -33,9 +33,13 @@ def worker(id_: int):
         data = c_sock.recv(1024)
         p = read_b(data)
 
-        print(f"[CS{id_:2}][Info] Worker {id_} received port {p}.")
+        print(f"[CS{id_:2}][Info] Worker {id_} received {p}.")
 
         # Port connection Start
+        if p > 65536:
+            print(f"[CS{id_:2}][Warn] received wrong port.")
+            break
+
         print(f"[CS{id_:2}][Info] Connecting Port {p}.")
         child_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         child_sock.settimeout(config.TIMEOUT)
@@ -45,12 +49,6 @@ def worker(id_: int):
 
         except socket.timeout:
             print(f"[CS{id_:2}][Info] Port {p} Timeout.")
-
-        except OverflowError:
-            print(f"[CS{id_:2}][Warn] received wrong port.")
-            child_sock.close()
-            break
-
         else:
             print(f"[CS{id_:2}][Info] Port {p} is open.")
 
