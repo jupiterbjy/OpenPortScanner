@@ -9,8 +9,7 @@ config = SharedModules.prepare(__file__)
 c_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 while True:
-    # host, port = input('Host IP:Port >> ').split(':')
-    host, port = '218.148.42.133:80'.split(':')
+    host, port = input('Host IP:Port >> ').split(':')
     port = int(port)
     try:
         c_sock.connect((host, port))
