@@ -2,7 +2,7 @@
 
 Example Demo:
 Don't ddos this.  
-![Imgur](https://i.imgur.com/clacTbG.mp4)
+![Imgur](https://imgur.com/MgitEl7.gif)
 
 Trying to create own open-port tester, for use in so-called "Cyber-media, information Room" in ROKA.
 
