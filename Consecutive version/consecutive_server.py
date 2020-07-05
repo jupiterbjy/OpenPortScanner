@@ -37,7 +37,7 @@ for p in range(1, config.PORT_MAX):
         print(f"[SS][Info] Port {p} Timeout.")
         SHUT_PORTS.append(p)
     except OSError:
-        print(f"[SS][Info] Port {p} in use.")
+        print(f"[SS][Warn] Port {p} in use.")
         USED_PORTS.append(p)
     else:
         print(f"[SS][Info] Port {p} is open.")

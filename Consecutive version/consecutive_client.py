@@ -5,6 +5,7 @@ from SharedData import SharedModules
 # setup
 config = SharedModules.prepare(__file__)
 
+# TODO: send configuration to server?
 
 c_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 

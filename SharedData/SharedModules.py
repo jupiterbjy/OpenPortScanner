@@ -35,6 +35,15 @@ def prepare(file):
     return load_config()
 
 
-def read_until(sock: socket, end: str):
-    while True:
-        pass
+# closure. Yield function that convert int to bytes, stores given parameters.
+def to_byte(byte_size, byte_order):
+    size = byte_size
+    order = byte_order
+
+    def write_as_byte(n: int) -> bytes:
+        return n.to_bytes(size, order)
+
+    def read_from_byte(b: bytes) -> int:
+        return int.from_bytes(b, order)
+
+    return read_from_byte, write_as_byte
