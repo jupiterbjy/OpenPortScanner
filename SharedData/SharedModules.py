@@ -1,17 +1,19 @@
 from os import chdir, path
 from sys import argv
 from urllib import request
-from socket import socket
 from types import SimpleNamespace
 import json
 
 
-loc = path.dirname(__file__)
+loc = path.dirname(path.abspath(__file__))
 
 
-def set_working_dir(file=None):
+def set_working_dir(file=__file__):
     if file:
-        chdir(path.dirname(file))
+        try:
+            chdir(path.dirname(path.abspath(file)))
+        except FileNotFoundError:  # linux, for some reason
+            pass
     else:
         chdir(path.dirname(argv[0]))
 
@@ -24,7 +26,7 @@ def get_external_ip():
 
 # assuming file is placed in same structure.
 def load_config():
-    with open(loc + '\\config.json') as f:
+    with open(loc + '/config.json') as f:
         data = json.load(f)
         return SimpleNamespace(**data)
 

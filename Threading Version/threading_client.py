@@ -64,7 +64,7 @@ def main():
     ]
 
     for w in workers:
-        w.run()
+        w.start()
 
     for w in workers:
         w.join()
