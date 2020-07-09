@@ -72,7 +72,6 @@ def worker(id_, q, send, recv, event: threading.Event):
         print(f"[SS{id_:2}][Info] Sending port {p} to Client.")
 
         send.put(p)
-        send.task_done()
 
         print(f"[SS{id_:2}][Info] Opening Port {p}.")
         child_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -108,6 +107,7 @@ def send_thread(q: Queue, e: threading.Event):
             continue
 
         n = q.get()
+        q.task_done()
         conn.send(write_b(n))
 
 
@@ -131,10 +131,11 @@ def main():
     ]
 
     workers = [
-        threading.Thread(target=worker, args=[i, work]) for i in range(config.WORKERS)
+        threading.Thread(target=worker, args=[i, work, send_q, recv_q, event])
+        for i in range(config.WORKERS)
     ]
 
-    for w in chain(server_thread, workers):
+    for w in chain(server_thread, workers):  # just wanted to try out chain.
         w.start()
 
     try:
@@ -149,6 +150,8 @@ def main():
 
     else:
         used_data = pickle.dumps([USED_PORTS, SHUT_PORTS])
+
+        # blocking is ok as thread is completed.
         conn.send(used_data)
         conn.close()
 

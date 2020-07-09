@@ -1,6 +1,8 @@
 import socket
 import pickle
 import threading
+from itertools import chain
+from queue import Queue
 try:
     from SharedData import SharedModules
 except ImportError:
@@ -28,13 +30,18 @@ while True:
         break
 
 
-def worker(id_: int):
-    while True:
+def worker(id_: int, send, recv, event: threading.Event):
+    q: Queue
+    send: Queue
+    recv: Queue
+
+    while not event.is_set():
         # announce server that the worker is ready.
         print(f"[CS{id_:2}][Info] Worker {id_:2} signals READY.")
         c_sock.send(write_b(id_))
 
-        data = c_sock.recv(1024)
+        data = recv.get()
+        recv.task_done()
         p = read_b(data)
 
         print(f"[CS{id_:2}][Info] Worker {id_} received {p}.")
@@ -59,28 +66,63 @@ def worker(id_: int):
         child_sock.close()
 
 
+def send_thread(q: Queue, e: threading.Event):
+    while not e.is_set():
+        if q.empty():
+            continue
+
+        n = q.get()
+        q.task_done()
+        c_sock.send(write_b(n))
+
+
+def recv_thread(q: Queue, e: threading.Event):
+    while not e.is_set():
+        data = c_sock.recv(1024)
+        q.put(read_b(data))
+
+
 def main():
+
+    event = threading.Event()
+    send_q = Queue()
+    recv_q = Queue()
+
+    server_thread = [
+        threading.Thread(target=send_thread, args=[send_q, event]),
+        threading.Thread(target=recv_thread, args=[recv_q, event])
+    ]
+
     workers = [
-        threading.Thread(target=worker, args=[i])
+        threading.Thread(target=worker, args=[i, send_q, recv_q, event])
         for i in range(config.WORKERS)
     ]
 
-    for w in workers:
+    for w in chain(server_thread, workers):
         w.start()
 
-    for w in workers:
-        w.join()
+    try:
+        for w in workers:
+            w.join()
 
-    data = c_sock.recv(4096)
-    USED_PORTS, SHUT_PORTS = pickle.loads(data)
-    print(f"[C][Info] Received Port data from server.")
+    except KeyboardInterrupt:
+        event.set()
+        for w in chain(workers, server_thread):
+            w.join()
+        print("[C][Warn] All workers stopped.")
 
-    # print(f"Open Ports  : {OPEN_PORTS}")
-    print("\n[Results]")
-    print(f"Used Ports  : {USED_PORTS}")
-    print(f"Closed Ports: {SHUT_PORTS}")
-    print(f"Excluded    : {config.EXCLUDE}")
-    print(f"All other ports from 1~{config.PORT_MAX} is open.")
+    else:
+
+        data = c_sock.recv(4096)
+        USED_PORTS, SHUT_PORTS = pickle.loads(data)
+        print(f"[C][Info] Received Port data from server.")
+
+        # print(f"Open Ports  : {OPEN_PORTS}")
+        print("\n[Results]")
+        print(f"Used Ports  : {USED_PORTS}")
+        print(f"Closed Ports: {SHUT_PORTS}")
+        print(f"Excluded    : {config.EXCLUDE}")
+        print(f"All other ports from 1~{config.PORT_MAX} is open.")
 
 
 if __name__ == "__main__":
