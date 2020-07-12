@@ -23,10 +23,15 @@ read_b, write_b = SharedModules.to_byte(config.BYTE_SIZE, config.BYTE_ORDER)
 s_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 print(f"[S][Info] Connect client to: {IP}:{config.INIT_PORT}")
-s_sock.bind(("", config.INIT_PORT))
-s_sock.listen(1)
-conn, addr = s_sock.accept()  # block until client signal
-print(f"[S][Info] Connected.")
+try:
+    s_sock.bind(("", config.INIT_PORT))
+except OSError:
+    print(f"[S][CRIT] Cannot open server at port {config.INIT_PORT}, aborting.")
+    exit()
+else:
+    s_sock.listen(1)
+    conn, addr = s_sock.accept()  # block until client signal
+    print(f"[S][Info] Connected.")
 
 
 # Results
