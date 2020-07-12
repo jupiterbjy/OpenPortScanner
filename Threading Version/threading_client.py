@@ -38,14 +38,11 @@ def worker(id_: int, send, recv, event: threading.Event):
     while not event.is_set():
         # announce server that the worker is ready.
         print(f"[CS{id_:2}][Info] Worker {id_:2} signals READY.")
-        c_sock.send(write_b(id_))
+        send.put(id_)
 
         data = recv.get()
         recv.task_done()
-        try:
-            p = read_b(data)
-        except TypeError:
-            pass
+        p = data
 
         print(f"[CS{id_:2}][Info] Worker {id_} received {p}.")
 
