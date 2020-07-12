@@ -14,10 +14,12 @@ except ImportError:
 # find port with this Power-shell script
 # Get-Process -Id (Get-NetTCPConnection -LocalPort 80).OwningProcess
 
+
 # setup
 config = SharedModules.prepare(__file__)
 IP = SharedModules.get_external_ip()
-read_b, write_b = SharedModules.rw_bytes(config.BYTE_SIZE, config.BYTE_ORDER)
+read_b, write_b = SharedModules.rw_bytes(
+    config.BYTE_SIZE, config.BYTE_ORDER, config.END_MARK, config.ENCODING)
 
 
 # Main connection start
@@ -27,7 +29,7 @@ print(f"[S][Info] Connect client to: {IP}:{config.INIT_PORT}")
 try:
     s_sock.bind(("", config.INIT_PORT))
 except OSError:
-    print(f"[S][CRIT] Cannot open server at port {config.INIT_PORT}, aborting.")
+    print(f"[S][Crit] Cannot open server at port {config.INIT_PORT}.")
     exit()
 else:
     s_sock.listen(1)
@@ -103,8 +105,9 @@ def worker(id_, q, send, recv, event: threading.Event):
 
     # Send end signal to client.
     # first worker catching this signal will go offline.
-    end: str = config.END_MARK
-    conn.send(end.encode(config.ENCODING))
+
+    print(f"[SS{id_:2}][Info] Done. Sending stop signal.")
+    send.put(70000)  # causing overflow to socket in client, stopping it.
 
 
 def send_thread(q: Queue, e: threading.Event):
@@ -114,12 +117,19 @@ def send_thread(q: Queue, e: threading.Event):
 
         n = q.get()
         q.task_done()
-        conn.send(write_b(n))
+        try:
+            conn.send(write_b(n))
+        except (ConnectionAbortedError, ConnectionResetError):
+            break
 
 
 def recv_thread(q: Queue, e: threading.Event):
     while not e.is_set():
-        q.put(read_b(conn.recv(1024)))
+        try:
+            q.put(read_b(conn.recv(4096)))
+
+        except (ConnectionAbortedError, ConnectionResetError):
+            break
 
 
 def main():
@@ -141,25 +151,35 @@ def main():
         for i in range(config.WORKERS)
     ]
 
+    # start threads
     for w in chain(server_thread, workers):  # just wanted to try out chain.
         w.start()
 
+    # Check if any thread is still alive
+    timer = threading.Event()
+
     try:
-        for w in workers:
-            w.join()
+        while SharedModules.any_thread_alive(workers):
+            timer.wait(timeout=0.1)
 
     except KeyboardInterrupt:
         event.set()
-        for w in chain(workers, server_thread):
+        for w in chain(workers):
             w.join()
         print("[S][Warn] All workers stopped.")
 
     else:
+        event.set()
+        for w in chain(workers):  # I need to stop server thread somehow..
+            w.join()
+        print("[S][Info] All workers stopped.")
+
+        print(f"[S][Info] Sending port data.")
+        conn.send(config.END_MARK.encode(config.ENCODING))
         used_data = pickle.dumps([USED_PORTS, SHUT_PORTS])
 
         # blocking is ok as thread is completed.
         conn.send(used_data)
-        conn.close()
 
         print("\n[Results]")
         print(f"Used Ports  : {USED_PORTS}")

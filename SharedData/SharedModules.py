@@ -38,14 +38,28 @@ def prepare(file):
 
 
 # closure. Yield function that convert int to bytes, stores given parameters.
-def rw_bytes(byte_size, byte_order):
+def rw_bytes(byte_size, byte_order, eof, encoding):
     size = byte_size
     order = byte_order
 
     def write_as_byte(n: int) -> bytes:
         return n.to_bytes(size, order)
 
-    def read_from_byte(b: bytes) -> int:
+    def read_from_byte(b: bytes):  # if eof then convert to str.
+        if b == eof:
+            return b.decode(encoding)
         return int.from_bytes(b, order)
 
     return read_from_byte, write_as_byte
+
+
+def alive_thread_gen(lst: list):
+    for idx, t in enumerate(lst):
+        yield t.is_alive()
+
+
+def any_thread_alive(lst: list):  # list containing threads.
+    if any(alive_thread_gen(lst)):
+        return True
+
+    return False

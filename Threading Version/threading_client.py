@@ -13,12 +13,14 @@ except ImportError:
 # setup
 config = SharedModules.prepare(__file__)
 c_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-read_b, write_b = SharedModules.rw_bytes(config.BYTE_SIZE, config.BYTE_ORDER)
+read_b, write_b = SharedModules.rw_bytes(
+    config.BYTE_SIZE, config.BYTE_ORDER, config.END_MARK, config.ENCODING)
 
 
 # Wait for connection, or a proper IP:PORT input.
 while True:
-    host, port = input("Host IP:Port >> ").split(":")
+    # host, port = input("Host [IP:Port] >> ").split(":")
+    host, port = '210.183.6.91:80'.split(":")
     port = int(port)
     try:
         c_sock.connect((host, port))
@@ -42,14 +44,9 @@ def worker(id_: int, send, recv, event: threading.Event):
 
         data = recv.get()
         recv.task_done()
+
         p = data
-
         print(f"[CS{id_:2}][Info] Worker {id_} received {p}.")
-
-        # Port connection Start
-        if p > 65536:
-            print(f"[CS{id_:2}][Warn] received wrong port.")
-            break
 
         print(f"[CS{id_:2}][Info] Connecting Port {p}.")
         child_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -57,6 +54,9 @@ def worker(id_: int, send, recv, event: threading.Event):
 
         try:
             child_sock.connect((host, p))
+        except OverflowError:
+            print(f"[CS{id_:2}][Info] Stop Signal received!")
+            break
 
         except socket.timeout:
             print(f"[CS{id_:2}][Info] Port {p} timeout.")
@@ -77,12 +77,24 @@ def send_thread(q: Queue, e: threading.Event):
 
         n = q.get()
         q.task_done()
-        c_sock.send(write_b(n))
+
+        try:
+            c_sock.send(write_b(n))
+        except (ConnectionAbortedError, ConnectionResetError):
+            break
 
 
 def recv_thread(q: Queue, e: threading.Event):
     while not e.is_set():
-        data = c_sock.recv(1024)
+        try:
+            data = c_sock.recv(4096)
+        except (ConnectionAbortedError, ConnectionResetError):
+            break
+
+        if data == config.END_MARK.encode(config.ENCODING):
+            print(f"[C] Received {data.decode(config.ENCODING)}")
+            break
+
         q.put(read_b(data))
 
 
@@ -102,31 +114,40 @@ def main():
         for i in range(config.WORKERS)
     ]
 
+    # start threads
     for w in chain(server_thread, workers):
         w.start()
 
+    # Check if any thread is still alive
+    timer = threading.Event()
+
     try:
-        for w in workers:
-            w.join()
+        while SharedModules.any_thread_alive(workers):
+            timer.wait(timeout=0.1)
 
     except KeyboardInterrupt:
         event.set()
-        for w in chain(workers, server_thread):
+        for w in chain(workers):
             w.join()
         print("[C][Warn] All workers stopped.")
 
     else:
+        event.set()
+        for w in chain(workers):  # I need to stop server thread somehow..
+            w.join()
+        print("[C][info] All workers stopped.")
 
-        data = c_sock.recv(4096)
-        USED_PORTS, SHUT_PORTS = pickle.loads(data)
-        print(f"[C][Info] Received Port data from server.")
+        # server_thread[1].join()
 
-        # print(f"Open Ports  : {OPEN_PORTS}")
-        print("\n[Results]")
-        print(f"Used Ports  : {USED_PORTS}")
-        print(f"Closed Ports: {SHUT_PORTS}")
-        print(f"Excluded    : {config.EXCLUDE}")
-        print(f"All other ports from 1~{config.PORT_MAX} is open.")
+        # data = c_sock.recv(4096)
+        # USED_PORTS, SHUT_PORTS = pickle.loads(data)
+        # print(f"[C][Info] Received Port data from server.")
+        #
+        # print("\n[Results]")
+        # print(f"Used Ports  : {USED_PORTS}")
+        # print(f"Closed Ports: {SHUT_PORTS}")
+        # print(f"Excluded    : {config.EXCLUDE}")
+        # print(f"\nAll other ports from 1~{config.PORT_MAX} is open.")
 
 
 if __name__ == "__main__":
