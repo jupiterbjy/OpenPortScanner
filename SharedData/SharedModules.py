@@ -38,7 +38,7 @@ def prepare(file):
 
 
 # closure. Yield function that convert int to bytes, stores given parameters.
-def to_byte(byte_size, byte_order):
+def rw_bytes(byte_size, byte_order):
     size = byte_size
     order = byte_order
 

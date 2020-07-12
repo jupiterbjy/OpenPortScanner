@@ -13,7 +13,7 @@ except ImportError:
 # setup
 config = SharedModules.prepare(__file__)
 c_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-read_b, write_b = SharedModules.to_byte(config.BYTE_SIZE, config.BYTE_ORDER)
+read_b, write_b = SharedModules.rw_bytes(config.BYTE_SIZE, config.BYTE_ORDER)
 
 
 # Wait for connection, or a proper IP:PORT input.
@@ -42,7 +42,10 @@ def worker(id_: int, send, recv, event: threading.Event):
 
         data = recv.get()
         recv.task_done()
-        p = read_b(data)
+        try:
+            p = read_b(data)
+        except TypeError:
+            pass
 
         print(f"[CS{id_:2}][Info] Worker {id_} received {p}.")
 
@@ -74,11 +77,13 @@ def send_thread(q: Queue, e: threading.Event):
         n = q.get()
         q.task_done()
         c_sock.send(write_b(n))
+        print('SEND', n)
 
 
 def recv_thread(q: Queue, e: threading.Event):
     while not e.is_set():
         data = c_sock.recv(1024)
+        print('RECV', data)
         q.put(read_b(data))
 
 

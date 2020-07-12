@@ -11,12 +11,13 @@ except ImportError:
     from SharedData import SharedModules
 
 # TODO: move global variables to locals.
-
+# find port with this Power-shell script
+# Get-Process -Id (Get-NetTCPConnection -LocalPort 80).OwningProcess
 
 # setup
 config = SharedModules.prepare(__file__)
 IP = SharedModules.get_external_ip()
-read_b, write_b = SharedModules.to_byte(config.BYTE_SIZE, config.BYTE_ORDER)
+read_b, write_b = SharedModules.rw_bytes(config.BYTE_SIZE, config.BYTE_ORDER)
 
 
 # Main connection start
