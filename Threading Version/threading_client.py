@@ -59,7 +59,11 @@ def worker(id_: int, send, recv, event: threading.Event):
             child_sock.connect((host, p))
 
         except socket.timeout:
-            print(f"[CS{id_:2}][Info] Port {p} Timeout.")
+            print(f"[CS{id_:2}][Info] Port {p} timeout.")
+
+        except OSError:
+            print(f"[CS{id_:2}][Warn] Port {p} in use.")
+
         else:
             print(f"[CS{id_:2}][Info] Port {p} is open.")
 
@@ -74,13 +78,11 @@ def send_thread(q: Queue, e: threading.Event):
         n = q.get()
         q.task_done()
         c_sock.send(write_b(n))
-        print('SEND', n)
 
 
 def recv_thread(q: Queue, e: threading.Event):
     while not e.is_set():
         data = c_sock.recv(1024)
-        print('RECV', data)
         q.put(read_b(data))
 
 
