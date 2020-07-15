@@ -20,8 +20,8 @@ read_b, write_b = SharedData.rw_bytes(
 
 # Wait for connection, or a proper IP:PORT input.
 while True:
-    # host, port = input("Host [IP:Port] >> ").split(":")
-    host, port = '210.183.6.91:80'.split(":")
+    host, port = input("Host [IP:Port] >> ").split(":")
+    # host, port = ''.split(":")
     port = int(port)
     try:
         c_sock.connect((host, port))
