@@ -7,7 +7,7 @@
   ],
   "TIMEOUT": 0.4,
   "END_MARK": "OkayuKawaii",
-  "WORKERS": 10,
+  "WORKERS": 20,
   "ENCODING": "utf-8",
   "BYTE_ORDER": "big",
   "BYTE_SIZE": 6
