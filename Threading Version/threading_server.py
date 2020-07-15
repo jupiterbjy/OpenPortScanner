@@ -4,21 +4,22 @@ import pickle
 from itertools import chain
 from queue import Queue
 try:
-    from SharedData import SharedModules
+    import SharedData
 except ImportError:
     from sys import path
     path.insert(1, '..')
-    from SharedData import SharedModules
+    import SharedData
 
 # TODO: move global variables to locals.
+# TODO: change to logging instead of print
 # find port with this Power-shell script
 # Get-Process -Id (Get-NetTCPConnection -LocalPort 80).OwningProcess
 
 
 # setup
-config = SharedModules.prepare(__file__)
-IP = SharedModules.get_external_ip()
-read_b, write_b = SharedModules.rw_bytes(
+config = SharedData.prepare(__file__)
+IP = SharedData.get_external_ip()
+read_b, write_b = SharedData.rw_bytes(
     config.BYTE_SIZE, config.BYTE_ORDER, config.END_MARK, config.ENCODING)
 
 
@@ -29,7 +30,7 @@ print(f"[S][Info] Connect client to: {IP}:{config.INIT_PORT}")
 try:
     s_sock.bind(("", config.INIT_PORT))
 except OSError:
-    print(f"[S][Crit] Cannot open server at port {config.INIT_PORT}.")
+    print(SharedData.red(f"[S][Crit] Cannot open server at port {config.INIT_PORT}."))
     exit()
 else:
     s_sock.listen(1)
@@ -60,7 +61,7 @@ def worker(id_, q, send, recv, event: threading.Event):
 
         # check eject event.
         if event.is_set():
-            print(f"[SS{id_:2}][Warn] Worker {id_} stopping.")
+            print(SharedData.purple(f"[SS{id_:2}][Warn] Worker {id_} stopping."))
             return
 
         # get next work.
@@ -69,7 +70,7 @@ def worker(id_, q, send, recv, event: threading.Event):
 
         # check if port is in blacklist.
         if p in config.EXCLUDE:
-            print(f"[SS{id_:2}][Info] Skipping Port {p}.")
+            print(SharedData.cyan(f"[SS{id_:2}][Info] Skipping Port {p}."))
             continue
 
         # receive worker announcement.
@@ -91,22 +92,22 @@ def worker(id_, q, send, recv, event: threading.Event):
             child_sock.accept()
 
         except socket.timeout:
-            print(f"[SS{id_:2}][Info] Port {p} Timeout.")
+            print(SharedData.red(f"[SS{id_:2}][Info] Port {p} Timeout."))
             SHUT_PORTS.append(p)
 
         except OSError:
-            print(f"[SS{id_:2}][Warn] Port {p} in use.")
+            print(SharedData.red(f"[SS{id_:2}][Warn] Port {p} in use."))
             USED_PORTS.append(p)
 
         else:
-            print(f"[SS{id_:2}][Info] Port {p} is open.")
+            print(SharedData.green(f"[SS{id_:2}][Info] Port {p} is open."))
 
         child_sock.close()
 
     # Send end signal to client.
     # first worker catching this signal will go offline.
 
-    print(f"[SS{id_:2}][Info] Done. Sending stop signal.")
+    print(SharedData.cyan(f"[SS{id_:2}][Info] Done. Sending stop signal."))
     send.put(70000)  # causing overflow to socket in client, stopping it.
 
 
@@ -126,10 +127,15 @@ def send_thread(q: Queue, e: threading.Event):
 def recv_thread(q: Queue, e: threading.Event):
     while not e.is_set():
         try:
-            q.put(read_b(conn.recv(4096)))
-
+            data = conn.recv(4096)
         except (ConnectionAbortedError, ConnectionResetError):
             break
+
+        if data == config.END_MARK.encode(config.ENCODING):
+            print(SharedData.green(f"[C][RECV] Received {data.decode(config.ENCODING)}"))
+            break
+
+        q.put(read_b(data))
 
 
 def main():
@@ -159,7 +165,7 @@ def main():
     timer = threading.Event()
 
     try:
-        while SharedModules.any_thread_alive(workers):
+        while SharedData.any_thread_alive(workers):
             timer.wait(timeout=0.1)
 
     except KeyboardInterrupt:
@@ -174,12 +180,27 @@ def main():
             w.join()
         print("[S][Info] All workers stopped.")
 
-        print(f"[S][Info] Sending port data.")
-        conn.send(config.END_MARK.encode(config.ENCODING))
-        used_data = pickle.dumps([USED_PORTS, SHUT_PORTS])
+        # send stop signal to server side RECV
+        # print(SharedData.cyan("[S][info] Sending kill signal to client RECV."))
+        # conn.send(config.END_MARK.encode(config.ENCODING))
 
-        # blocking is ok as thread is completed.
-        conn.send(used_data)
+        # cutting connection to kill read write threads.
+        # NEVER PROGRAM LIKE THIS!!
+        conn.close()
+        s_sock.close()
+
+        # opening new connection
+        s_sock2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s_sock2.bind(("", config.INIT_PORT))
+        s_sock2.listen(1)
+        conn2, addr2 = s_sock2.accept()
+
+        # sending pickled port results
+        print(f"[S][Info] Sending port data.")
+        used_data = pickle.dumps([USED_PORTS, SHUT_PORTS])
+        conn2.send(used_data)
+        conn2.close()
+
 
         print("\n[Results]")
         print(f"Used Ports  : {USED_PORTS}")

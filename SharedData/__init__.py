@@ -73,7 +73,7 @@ def any_thread_alive(lst: list):  # list containing threads.
     return False
 
 
-def Colorize(txt, color):
+def colorize(txt, color):
     if not COLOR:
         return txt
 
@@ -91,3 +91,23 @@ def Colorize(txt, color):
     }
     s = str(txt)
     return ansi[color] + s + ansi["END"]
+
+
+def red(txt: str):
+    return colorize(txt, 'RED')
+
+
+def green(txt: str):
+    return colorize(txt, 'GREEN')
+
+
+def blue(txt: str):
+    return colorize(txt, 'BLUE')
+
+
+def cyan(txt: str):
+    return colorize(txt, 'CYAN')
+
+
+def purple(txt: str):
+    return colorize(txt, 'PURPLE')

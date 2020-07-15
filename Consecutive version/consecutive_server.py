@@ -1,11 +1,11 @@
 import threading
 import socket
 import pickle
-from SharedData import SharedModules
+from SharedData import modules
 
 # setup
-config = SharedModules.prepare(__file__)
-IP = SharedModules.get_external_ip()
+config = modules.prepare(__file__)
+IP = modules.get_external_ip()
 
 s_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 

@@ -1,9 +1,9 @@
 import socket
 import pickle
-from SharedData import SharedModules
+from SharedData import modules
 
 # setup
-config = SharedModules.prepare(__file__)
+config = modules.prepare(__file__)
 
 # TODO: send configuration to server?
 

@@ -4,16 +4,17 @@ import threading
 from itertools import chain
 from queue import Queue
 try:
-    from SharedData import SharedModules
+    import SharedData
 except ImportError:
     from sys import path
     path.insert(1, '..')
-    from SharedData import SharedModules
+    import SharedData
+
 
 # setup
-config = SharedModules.prepare(__file__)
+config = SharedData.prepare(__file__)
 c_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-read_b, write_b = SharedModules.rw_bytes(
+read_b, write_b = SharedData.rw_bytes(
     config.BYTE_SIZE, config.BYTE_ORDER, config.END_MARK, config.ENCODING)
 
 
@@ -55,17 +56,17 @@ def worker(id_: int, send, recv, event: threading.Event):
         try:
             child_sock.connect((host, p))
         except OverflowError:
-            print(f"[CS{id_:2}][Info] Stop Signal received!")
+            print(SharedData.cyan(f"[CS{id_:2}][Info] Stop Signal received!"))
             break
 
         except socket.timeout:
-            print(f"[CS{id_:2}][Info] Port {p} timeout.")
+            print(SharedData.red(f"[CS{id_:2}][Info] Port {p} Timeout."))
 
         except OSError:
-            print(f"[CS{id_:2}][Warn] Port {p} in use.")
+            print(SharedData.red(f"[CS{id_:2}][Warn] Port {p} in use."))
 
         else:
-            print(f"[CS{id_:2}][Info] Port {p} is open.")
+            print(SharedData.green(f"[CS{id_:2}][Info] Port {p} is open."))
 
         child_sock.close()
 
@@ -92,7 +93,7 @@ def recv_thread(q: Queue, e: threading.Event):
             break
 
         if data == config.END_MARK.encode(config.ENCODING):
-            print(f"[C] Received {data.decode(config.ENCODING)}")
+            print(SharedData.green(f"[C][RECV] Received {data.decode(config.ENCODING)}"))
             break
 
         q.put(read_b(data))
@@ -122,7 +123,7 @@ def main():
     timer = threading.Event()
 
     try:
-        while SharedModules.any_thread_alive(workers):
+        while SharedData.any_thread_alive(workers):
             timer.wait(timeout=0.1)
 
     except KeyboardInterrupt:
@@ -137,17 +138,38 @@ def main():
             w.join()
         print("[C][info] All workers stopped.")
 
-        # server_thread[1].join()
+        # send stop signal to server side RECV
+        # print(SharedData.cyan("[C][info] Sending kill signal to server RECV."))
+        # send_q.put(config.END_MARK.encode(config.ENCODING))
 
-        # data = c_sock.recv(4096)
-        # USED_PORTS, SHUT_PORTS = pickle.loads(data)
-        # print(f"[C][Info] Received Port data from server.")
-        #
-        # print("\n[Results]")
-        # print(f"Used Ports  : {USED_PORTS}")
-        # print(f"Closed Ports: {SHUT_PORTS}")
-        # print(f"Excluded    : {config.EXCLUDE}")
-        # print(f"\nAll other ports from 1~{config.PORT_MAX} is open.")
+        # cutting connection to kill read write threads.
+        # NEVER PROGRAM LIKE THIS!!
+        c_sock.close()
+
+        # opening new connection
+        c_sock2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        c_sock2.connect((host, port))
+
+        # load pickled result from INIT port
+        print("[C][Info] fetching Port data from server.")
+        data = c_sock2.recv(4096)
+        while True:
+            try:
+                USED_PORTS, SHUT_PORTS = pickle.loads(data)
+            except pickle.UnpicklingError:
+                data += c_sock2.recv(4096)
+                continue
+            else:
+                c_sock2.close()
+                break
+
+        print("[C][Info] Received Port data from server.")
+
+        print("\n[Results]")
+        print(f"Used Ports  : {USED_PORTS}")
+        print(f"Closed Ports: {SHUT_PORTS}")
+        print(f"Excluded    : {config.EXCLUDE}")
+        print(f"\nAll other ports from 1~{config.PORT_MAX} is open.")
 
 
 if __name__ == "__main__":
