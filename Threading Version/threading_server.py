@@ -2,7 +2,7 @@ import threading
 import socket
 import pickle
 from itertools import chain
-from queue import Queue
+from queue import Queue, Empty
 try:
     import SharedData
 except ImportError:
@@ -19,6 +19,7 @@ except ImportError:
 # setup
 config = SharedData.prepare(__file__)
 IP = SharedData.get_external_ip()
+TIMEOUT_FACTOR = config.TIMEOUT * 2 if config.TIMEOUT < 2 else 5
 read_b, write_b = SharedData.rw_bytes(
     config.BYTE_SIZE, config.BYTE_ORDER, config.END_MARK, config.ENCODING)
 
@@ -112,30 +113,44 @@ def worker(id_, q, send, recv, event: threading.Event):
 
 
 def send_thread(q: Queue, e: threading.Event):
-    while not e.is_set():
-        if q.empty():
-            continue
+    while True:
 
-        n = q.get()
-        q.task_done()
         try:
-            conn.send(write_b(n))
-        except (ConnectionAbortedError, ConnectionResetError):
-            break
+            n = q.get(timeout=TIMEOUT_FACTOR)
+        except Empty:
+            if e.is_set():
+                print("[S][SEND] Event Set!")
+                break
+        else:
+            q.task_done()
+
+            try:
+                conn.send(write_b(n))
+            except (ConnectionAbortedError, ConnectionResetError):
+                print("[S][SEND] Connection reset!")
+                break
 
 
 def recv_thread(q: Queue, e: threading.Event):
-    while not e.is_set():
+    conn.settimeout(TIMEOUT_FACTOR)
+    # making a vague assumption of timeout situation.
+
+    while True:
+
         try:
-            data = conn.recv(4096)
+            data = conn.recv(65536)
         except (ConnectionAbortedError, ConnectionResetError):
             break
+        except socket.timeout:
+            if e.is_set():
+                print(SharedData.red(f"[S][RECV] Timeout, closing RECV thread."))
+                break
+        else:
+            if data == config.END_MARK.encode(config.ENCODING):
+                print(SharedData.green(f"[S][RECV] Received {data.decode(config.ENCODING)}"))
+                break
 
-        if data == config.END_MARK.encode(config.ENCODING):
-            print(SharedData.green(f"[C][RECV] Received {data.decode(config.ENCODING)}"))
-            break
-
-        q.put(read_b(data))
+            q.put(read_b(data))
 
 
 def main():
@@ -180,26 +195,15 @@ def main():
             w.join()
         print("[S][Info] All workers stopped.")
 
-        # send stop signal to server side RECV
-        # print(SharedData.cyan("[S][info] Sending kill signal to client RECV."))
-        # conn.send(config.END_MARK.encode(config.ENCODING))
-
-        # cutting connection to kill read write threads.
-        # NEVER PROGRAM LIKE THIS!!
-        conn.close()
-        s_sock.close()
-
-        # opening new connection
-        s_sock2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s_sock2.bind(("", config.INIT_PORT))
-        s_sock2.listen(1)
-        conn2, addr2 = s_sock2.accept()
+        # send stop signal to client side RECV
+        print(SharedData.cyan("[S][info] Sending kill signal to client RECV."))
+        conn.send(config.END_MARK.encode(config.ENCODING))
 
         # sending pickled port results
         print(f"[S][Info] Sending port data.")
         used_data = pickle.dumps([USED_PORTS, SHUT_PORTS])
-        conn2.send(used_data)
-        conn2.close()
+        conn.send(used_data)
+        conn.close()
 
         print("\n[Results]")
         print(f"Used Ports  : {USED_PORTS}")
