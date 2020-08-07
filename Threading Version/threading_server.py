@@ -201,7 +201,6 @@ def main():
         conn2.send(used_data)
         conn2.close()
 
-
         print("\n[Results]")
         print(f"Used Ports  : {USED_PORTS}")
         print(f"Closed Ports: {SHUT_PORTS}")

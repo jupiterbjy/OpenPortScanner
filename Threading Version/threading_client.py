@@ -152,22 +152,25 @@ def main():
 
         # load pickled result from INIT port
         print("[C][Info] fetching Port data from server.")
-        data = c_sock2.recv(4096)
-        while True:
-            try:
-                USED_PORTS, SHUT_PORTS = pickle.loads(data)
-            except pickle.UnpicklingError:
-                data += c_sock2.recv(4096)
-                continue
-            else:
-                c_sock2.close()
-                break
+        data = c_sock2.recv(65536)
+        used_ports, shut_ports = pickle.loads(data)
+        c_sock2.close()
+
+        # while True:
+        #     try:
+        #         USED_PORTS, SHUT_PORTS = pickle.loads(data)
+        #     except pickle.UnpicklingError:
+        #         data += c_sock2.recv(4096)
+        #         continue
+        #     else:
+        #         c_sock2.close()
+        #         break
 
         print("[C][Info] Received Port data from server.")
 
         print("\n[Results]")
-        print(f"Used Ports  : {USED_PORTS}")
-        print(f"Closed Ports: {SHUT_PORTS}")
+        print(f"Used Ports  : {used_ports}")
+        print(f"Closed Ports: {shut_ports}")
         print(f"Excluded    : {config.EXCLUDE}")
         print(f"\nAll other ports from 1~{config.PORT_MAX} is open.")
 
