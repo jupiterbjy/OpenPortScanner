@@ -75,7 +75,11 @@ def worker(id_, q, send, recv, event: threading.Event):
             continue
 
         # receive worker announcement.
-        worker_id = recv.get()
+        try:
+            worker_id = recv.get(timeout=TIMEOUT_FACTOR)
+        except Empty:  # Timeout
+            continue
+
         recv.task_done()
 
         print(f"[SS{id_:2}][Info] Worker {worker_id} announce READY.")

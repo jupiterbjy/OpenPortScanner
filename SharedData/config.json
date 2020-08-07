@@ -1,6 +1,6 @@
 {
   "PORT_MAX": 600,
-  "INIT_PORT": 8080,
+  "INIT_PORT": 8081,
   "EXCLUDE": [
     80,
     443

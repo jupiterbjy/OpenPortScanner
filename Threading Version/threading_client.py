@@ -44,7 +44,11 @@ def worker(id_: int, send, recv, event: threading.Event):
         print(f"[CS{id_:2}][Info] Worker {id_:2} signals READY.")
         send.put(id_)
 
-        data = recv.get()
+        try:
+            data = recv.get()
+        except Empty:
+            continue
+
         recv.task_done()
 
         p = data
