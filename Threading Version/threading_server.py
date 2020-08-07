@@ -185,23 +185,26 @@ def main():
 
     try:
         while SharedData.any_thread_alive(workers):
-            timer.wait(timeout=0.1)
+            timer.wait(timeout=0.2)
 
     except KeyboardInterrupt:
         event.set()
-        for w in chain(workers):
+        for w in workers:
             w.join()
         print("[S][Warn] All workers stopped.")
 
     else:
         event.set()
-        for w in chain(workers):  # I need to stop server thread somehow..
+        for w in workers:  # I need to stop server thread somehow..
             w.join()
         print("[S][Info] All workers stopped.")
 
         # send stop signal to client side RECV
         print(SharedData.cyan("[S][info] Sending kill signal to client RECV."))
         conn.send(config.END_MARK.encode(config.ENCODING))
+        for t in server_thread:
+            t.join()
+        print("[S][info] RECV/SEND stopped.")
 
         # sending pickled port results
         print(f"[S][Info] Sending port data.")

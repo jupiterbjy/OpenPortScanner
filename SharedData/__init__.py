@@ -3,10 +3,12 @@ from sys import argv
 from urllib import request
 from types import SimpleNamespace
 import json
+import pkgutil
 
 try:
     import colorama
 except ModuleNotFoundError:
+    print("Colorama not installed, disabling colored text.")
     COLOR = False
 else:
     colorama.init()
@@ -39,6 +41,10 @@ def load_config():
         return SimpleNamespace(**data)
 
 
+def load_config_new():
+    return SimpleNamespace(**pkgutil.get_data(__package__, 'config.json'))
+
+
 # just a convenient method
 def prepare(file):
     set_working_dir(file)
@@ -46,7 +52,7 @@ def prepare(file):
 
 
 # closure. Yield function that convert int to bytes, stores given parameters.
-def rw_bytes(byte_size, byte_order, eof, encoding):
+def rw_bytes(byte_size: int, byte_order: str, eof: str, encoding: str):
     size = byte_size
     order = byte_order
 
@@ -54,7 +60,7 @@ def rw_bytes(byte_size, byte_order, eof, encoding):
         return n.to_bytes(size, order)
 
     def read_from_byte(b: bytes):  # if eof then convert to str.
-        if b == eof:
+        if b == eof.encode(encoding=encoding):
             return b.decode(encoding)
         return int.from_bytes(b, order)
 
@@ -67,10 +73,7 @@ def alive_thread_gen(lst: list):
 
 
 def any_thread_alive(lst: list):  # list containing threads.
-    if any(alive_thread_gen(lst)):
-        return True
-
-    return False
+    return any(alive_thread_gen(lst))
 
 
 def colorize(txt, color):

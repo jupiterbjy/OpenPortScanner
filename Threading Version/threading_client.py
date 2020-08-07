@@ -83,7 +83,7 @@ def send_thread(q: Queue, e: threading.Event):
             n = q.get(timeout=TIMEOUT_FACTOR)
         except Empty:
             if e.is_set():
-                print("[C][SEND] Event Set!")
+                print("[C][SEND] Event set!")
                 break
         else:
             q.task_done()
@@ -107,7 +107,7 @@ def recv_thread(q: Queue, e: threading.Event):
             break
         except socket.timeout:
             if e.is_set():
-                print(SharedData.red(f"[C][RECV] Timeout, closing RECV thread."))
+                print(SharedData.red(f"[C][RECV] Event set!"))
                 break
         else:
             if data == config.END_MARK.encode(config.ENCODING):
@@ -115,6 +115,21 @@ def recv_thread(q: Queue, e: threading.Event):
                 break
 
             q.put(read_b(data))
+
+
+def recv_while_timeout(sock: socket.socket, eof: bytes, buffer=4096, timeout=3):
+    sock.settimeout(timeout)  # not sure this works while socket is open..
+
+    # TODO: use := to add data in while loop, check python 3.9
+    data = b''
+    while True:
+        try:
+            data += sock.recv(buffer)
+        except socket.timeout as err:
+            raise IOError("Socket timeout.")
+        else:
+            if data.endswith(eof):
+                return data
 
 
 def main():
@@ -142,27 +157,31 @@ def main():
 
     try:
         while SharedData.any_thread_alive(workers):
-            timer.wait(timeout=0.1)
+            timer.wait(timeout=0.2)
 
-    except KeyboardInterrupt:
+    except KeyboardInterrupt:  # fix this
         event.set()
-        for w in chain(workers):
+        for w in workers:
             w.join()
         print("[C][Warn] All workers stopped.")
 
     else:
         event.set()
-        for w in chain(workers):  # I need to stop server thread somehow..
+        for w in workers:  # I need to stop server thread somehow..
             w.join()
         print("[C][info] All workers stopped.")
 
         # send stop signal to server side RECV
+        # TODO: change config.END_MARK to bytes, removing need to encode every time.
         print(SharedData.cyan("[C][info] Sending kill signal to server RECV."))
         send_q.put(config.END_MARK.encode(config.ENCODING))
+        for t in server_thread:
+            t.join()
+        print("[C][info] RECV/SEND stopped.")
 
         # load pickled result from INIT port
         print("[C][Info] fetching Port data from server.")
-        data = c_sock.recv(65536)
+        data = recv_while_timeout(c_sock, config.END_MARK.encode(config.ENCODING))
         used_ports, shut_ports = pickle.loads(data)
         c_sock.close()
 
