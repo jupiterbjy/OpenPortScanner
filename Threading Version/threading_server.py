@@ -9,7 +9,8 @@ try:
 except ImportError:
     from sys import path
 
-    path.insert(1, "..")
+    path.insert(1, "../..")
+    path.insert(2, "..")
     import SharedData
 
 # TODO: move global variables to locals.
