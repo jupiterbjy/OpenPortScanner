@@ -1,13 +1,15 @@
 import threading
 import socket
-import pickle
+import json
 from itertools import chain
 from queue import Queue, Empty
+
 try:
     import SharedData
 except ImportError:
     from sys import path
-    path.insert(1, '..')
+
+    path.insert(1, "..")
     import SharedData
 
 # TODO: move global variables to locals.
@@ -17,11 +19,12 @@ except ImportError:
 
 
 # setup
-config = SharedData.prepare(__file__)
+config = SharedData.load_config_new()
 IP = SharedData.get_external_ip()
-TIMEOUT_FACTOR = config.TIMEOUT * 2 if config.TIMEOUT < 2 else 5
+TIMEOUT_FACTOR = config.SOCK_TIMEOUT
 read_b, write_b = SharedData.rw_bytes(
-    config.BYTE_SIZE, config.BYTE_ORDER, config.END_MARK, config.ENCODING)
+    config.BYTE_SIZE, config.BYTE_ORDER, config.END_MARK, config.ENCODING
+)
 
 
 # Main connection start
@@ -81,10 +84,9 @@ def worker(id_, q, send, recv, event: threading.Event):
             continue
 
         recv.task_done()
-
         print(f"[SS{id_:2}][Info] Worker {worker_id} announce READY.")
-        print(f"[SS{id_:2}][Info] Sending port {p} to Client.")
 
+        print(f"[SS{id_:2}][Info] Sending port {p} to Client.")
         send.put(p)
 
         print(f"[SS{id_:2}][Info] Opening Port {p}.")
@@ -150,8 +152,8 @@ def recv_thread(q: Queue, e: threading.Event):
                 print(SharedData.red(f"[S][RECV] Timeout, closing RECV thread."))
                 break
         else:
-            if data == config.END_MARK.encode(config.ENCODING):
-                print(SharedData.green(f"[S][RECV] Received {data.decode(config.ENCODING)}"))
+            if data == config.END_MARK:
+                print(SharedData.green(f"[S][RECV] Received eof <{data}>"))
                 break
 
             q.put(read_b(data))
@@ -168,7 +170,7 @@ def main():
 
     server_thread = [
         threading.Thread(target=send_thread, args=[send_q, event]),
-        threading.Thread(target=recv_thread, args=[recv_q, event])
+        threading.Thread(target=recv_thread, args=[recv_q, event]),
     ]
 
     workers = [
@@ -197,19 +199,21 @@ def main():
         event.set()
         for w in workers:  # I need to stop server thread somehow..
             w.join()
-        print("[S][Info] All workers stopped.")
+        print(SharedData.bold("[S][Info] All workers stopped."))
 
         # send stop signal to client side RECV
-        print(SharedData.cyan("[S][info] Sending kill signal to client RECV."))
-        conn.send(config.END_MARK.encode(config.ENCODING))
+        print(SharedData.bold("[S][info] Sending kill signal to client RECV."))
+        conn.send(config.END_MARK)
         for t in server_thread:
             t.join()
         print("[S][info] RECV/SEND stopped.")
 
         # sending pickled port results
         print(f"[S][Info] Sending port data.")
-        used_data = pickle.dumps([USED_PORTS, SHUT_PORTS])
-        conn.send(used_data)
+        used_data = json.dumps([USED_PORTS, SHUT_PORTS])
+        result = conn.send(used_data.encode(config.ENCODING) + config.END_MARK)
+        if result == 0:
+            print(f"[S][CRIT] Socket connection broken.")
         conn.close()
 
         print("\n[Results]")

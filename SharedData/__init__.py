@@ -28,11 +28,13 @@ def get_external_ip():
 
 def load_config_new():
     data = json.loads(pkgutil.get_data(__package__, 'config.json'))
+    data['END_MARK'] = data['END_MARK'].encode(data['ENCODING'])
+
     return SimpleNamespace(**data)
 
 
 # closure. Yield function that convert int to bytes, stores given parameters.
-def rw_bytes(byte_size: int, byte_order: str, eof: str, encoding: str):
+def rw_bytes(byte_size: int, byte_order: str, eof: bytes, encoding: str):
 
     def write_as_byte(n: int) -> bytes:
         # assume n is int. If not, as a debugging feature, check if data is
@@ -47,8 +49,8 @@ def rw_bytes(byte_size: int, byte_order: str, eof: str, encoding: str):
 
     def read_from_byte(b: bytes):
         # if eof then convert to str. Waste of processing power.
-        if b == eof.encode(encoding=encoding):
-            return b.decode(encoding)
+        if b == eof:
+            return b
 
         return int.from_bytes(b, byte_order)
 

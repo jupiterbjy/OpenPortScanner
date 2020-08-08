@@ -1,4 +1,4 @@
-
+from functools import wraps
 
 def colorize_closure():
     try:
@@ -66,4 +66,4 @@ def underline(txt: str):
     return colorize(txt, 'UNDERLINE')
 
 
-__all__ = ['red', 'green', 'cyan', 'purple', 'bold', 'header', 'underline']
+__all__ = ['red', 'green', 'blue', 'cyan', 'purple', 'bold', 'header', 'underline']
