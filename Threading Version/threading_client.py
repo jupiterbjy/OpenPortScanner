@@ -33,6 +33,7 @@ while True:
         print(f"[C][Warn] Cannot connect to - {host}:{port}")
     else:
         print("[C][Info] Connected")
+        c_sock.settimeout(TIMEOUT_FACTOR)
         # c_sock.send(b'1')
         break
 
@@ -125,11 +126,8 @@ def recv_thread(q: Queue, e: threading.Event):
             q.put(read_b(data))
 
 
-def recv_while_timeout(sock: socket.socket, eof: bytes, timeout=3):
-    sock.settimeout(timeout)  # not sure this works while socket is open..
+def recv_until_eof(sock: socket.socket, eof: bytes):
 
-    # TODO: use := to add data in while loop, check python 3.9
-    # TODO: figure out why time out is not working.
     data = b""
     while True:
         try:
@@ -161,46 +159,31 @@ def main():
     for w in chain(server_thread, workers):
         w.start()
 
-    # Check if any thread is still alive
-    timer = threading.Event()
+    for w in workers:
+        w.join()
 
-    try:
-        while SharedData.any_thread_alive(workers):
-            timer.wait(timeout=0.2)
+    event.set()
+    print(SharedData.bold("[C][info] All workers stopped."))
 
-    except KeyboardInterrupt:  # fix this
-        event.set()
-        for w in workers:
-            w.join()
-        print("[C][Warn] All workers stopped.")
+    # send stop signal to server side RECV
+    print(SharedData.bold("[C][info] Sending kill signal to server RECV."))
+    send_q.put(config.END_MARK)
 
-    else:
-        event.set()
-        for w in workers:  # I need to stop server thread somehow..
-            w.join()
-        print(SharedData.bold("[C][info] All workers stopped."))
+    # waiting for SEND / RECV to stop
+    for t in server_thread:
+        t.join(timeout=5)
 
-        # send stop signal to server side RECV
-        print(SharedData.bold("[C][info] Sending kill signal to server RECV."))
-        send_q.put(config.END_MARK)
+    # load pickled result from INIT port
+    print("[C][Info] Fetching Port data from server.")
+    data = recv_until_eof(c_sock, config.END_MARK)
+    used_ports, shut_ports = json.loads(data.decode(config.ENCODING))
+    c_sock.close()
 
-        # waiting for SEND / RECV to stop
-        for t in server_thread:
-            t.join()
-
-        # load pickled result from INIT port
-        print("[C][Info] fetching Port data from server.")
-        data = recv_while_timeout(c_sock, config.END_MARK)
-        used_ports, shut_ports = json.loads(data.decode(config.ENCODING))
-        c_sock.close()
-
-        print("[C][Info] Received Port data from server.")
-
-        print("\n[Results]")
-        print(f"Used Ports  : {used_ports}")
-        print(f"Closed Ports: {shut_ports}")
-        print(f"Excluded    : {config.EXCLUDE}")
-        print(f"\nAll other ports from 1~{config.PORT_MAX} is open.")
+    print("\n[Results]")
+    print(f"Used Ports  : {used_ports}")
+    print(f"Closed Ports: {shut_ports}")
+    print(f"Excluded    : {config.EXCLUDE}")
+    print(f"\nAll other ports from 1~{config.PORT_MAX} is open.")
 
 
 if __name__ == "__main__":

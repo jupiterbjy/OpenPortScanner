@@ -20,7 +20,7 @@ def send(sock: socket.socket):
 
 def recv(sock: socket.socket):
     while True:
-        msg = sock.recv(1024)
+        msg = sock.recv()
         print(f'\nrecv >> {msg.decode(ENCODING)}')
 
 

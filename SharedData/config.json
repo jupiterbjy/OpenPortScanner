@@ -1,5 +1,5 @@
 {
-  "PORT_MAX": 10000,
+  "PORT_MAX": 1000,
   "INIT_PORT": 80,
   "EXCLUDE": [
     80,

@@ -81,7 +81,7 @@ def worker(id_, q, send, recv, event: threading.Event):
         try:
             worker_id = recv.get(timeout=TIMEOUT_FACTOR)
         except Empty:  # Timeout
-            continue
+            worker_id = 'NULL'
 
         recv.task_done()
         print(f"[SS{id_:2}][Info] Worker {worker_id} announce READY.")
@@ -182,45 +182,34 @@ def main():
     for w in chain(server_thread, workers):  # just wanted to try out chain.
         w.start()
 
-    # Check if any thread is still alive
-    timer = threading.Event()
+    for w in workers:  # I need to stop server thread somehow..
+        w.join()
 
-    try:
-        while SharedData.any_thread_alive(workers):
-            timer.wait(timeout=0.2)
+    event.set()
+    print(SharedData.bold("[S][Info] All workers stopped."))
 
-    except KeyboardInterrupt:
-        event.set()
-        for w in workers:
-            w.join()
-        print("[S][Warn] All workers stopped.")
+    # send stop signal to client side RECV
+    print(SharedData.bold("[S][info] Sending kill signal to client RECV."))
+    conn.send(config.END_MARK)
 
-    else:
-        event.set()
-        for w in workers:  # I need to stop server thread somehow..
-            w.join()
-        print(SharedData.bold("[S][Info] All workers stopped."))
+    for t in server_thread:
+        t.join()
+    print("[S][info] RECV/SEND stopped.")
 
-        # send stop signal to client side RECV
-        print(SharedData.bold("[S][info] Sending kill signal to client RECV."))
-        conn.send(config.END_MARK)
-        for t in server_thread:
-            t.join()
-        print("[S][info] RECV/SEND stopped.")
+    # sending pickled port results
+    print(f"[S][Info] Sending port data.")
+    used_data = json.dumps([USED_PORTS, SHUT_PORTS])
 
-        # sending pickled port results
-        print(f"[S][Info] Sending port data.")
-        used_data = json.dumps([USED_PORTS, SHUT_PORTS])
-        result = conn.send(used_data.encode(config.ENCODING) + config.END_MARK)
-        if result == 0:
-            print(f"[S][CRIT] Socket connection broken.")
-        conn.close()
+    if conn.send(used_data.encode(config.ENCODING) + config.END_MARK):
+        print(f"[S][CRIT] Socket connection broken.")
 
-        print("\n[Results]")
-        print(f"Used Ports  : {USED_PORTS}")
-        print(f"Closed Ports: {SHUT_PORTS}")
-        print(f"Excluded    : {config.EXCLUDE}")
-        print(f"\nAll other ports from 1~{config.PORT_MAX} is open.")
+    conn.close()
+
+    print("\n[Results]")
+    print(f"Used Ports  : {USED_PORTS}")
+    print(f"Closed Ports: {SHUT_PORTS}")
+    print(f"Excluded    : {config.EXCLUDE}")
+    print(f"\nAll other ports from 1~{config.PORT_MAX} is open.")
 
 
 if __name__ == "__main__":

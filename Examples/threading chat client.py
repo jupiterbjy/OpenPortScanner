@@ -10,7 +10,8 @@ ENCODING = 'utf-8'
 def send(sock: socket.socket):
     while True:
         msg = input("send << ")
-        sock.send(msg.encode(ENCODING))
+        encode = msg.encode(ENCODING)
+        sock.send(len(encode).to_bytes(32, 'big') + encode)
 
 
 def recv(sock: socket.socket):
