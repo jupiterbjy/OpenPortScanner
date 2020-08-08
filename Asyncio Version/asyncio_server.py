@@ -1,152 +1,217 @@
-import asyncio
+import threading
 import socket
-from urllib import request
-from asyncio import StreamWriter, StreamReader
+import json
+from itertools import chain
+from queue import Queue, Empty
+
+try:
+    import SharedData
+except ImportError:
+    from sys import path
+
+    path.insert(1, "../..")
+    path.insert(2, "..")
+    import SharedData
+
+# TODO: move global variables to locals.
+# TODO: change to logging instead of print
+# find port with this Power-shell script
+# Get-Process -Id (Get-NetTCPConnection -LocalPort 80).OwningProcess
 
 
-INITIAL_PORT = 80
-WORKERS = 3
-EOF = b'E'
-PASS = b'P'
-ENCODING = 'utf-8'
+# setup
+config = SharedData.load_config_new()
+IP = SharedData.get_external_ip()
+TIMEOUT_FACTOR = config.SOCK_TIMEOUT
+read_b, write_b = SharedData.rw_bytes(
+    config.BYTE_SIZE, config.BYTE_ORDER, config.END_MARK, config.ENCODING
+)
 
 
-class Success(Exception):
-    pass
+# Main connection start
+s_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+print(f"[S][Info] Connect client to: {IP}:{config.INIT_PORT}")
+try:
+    s_sock.bind(("", config.INIT_PORT))
+except OSError:
+    print(SharedData.red(f"[S][Crit] Cannot open server at port {config.INIT_PORT}."))
+    exit()
+else:
+    s_sock.listen(1)
+    conn, addr = s_sock.accept()  # block until client signal
+    print(f"[S][Info] Connected.")
 
 
-async def worker(id_: int, port_queue: asyncio.Queue, pass_queue: asyncio.Queue):
-    print(f"[S{id_}] Worker {id_} Started")
-    current_port = await port_queue.get()
-    await pass_queue.put(current_port)
-
-    async def handler(reader: StreamReader, writer: StreamWriter):
-        nonlocal current_port
-
-        # TODO: add echo to port it's hosting on
-        # Do i need to check if data is same? Client only sends PASS.
-        data = await reader.readuntil(EOL)
-        print(data.decode(ENCODING))
-
-        if port_queue.empty():
-            writer.write(EOF + EOL)
-            await writer.drain()
-            writer.close()
-            raise EOFError(f"[S{id_}] Worker {id_} complete.")
-
-        writer.write(PASS + EOL)
-        await writer.drain()
-        writer.close()
-
-        raise Success
-
-    async def server(port):
-        server_coroutine = await asyncio.start_server(handler, port=port)
-
-        async with server_coroutine:
-            print(f"[S{id_}]Port {current_port} hosting")
-            await server_coroutine.serve_forever()
-
-    while True:
-        try:
-            await asyncio.wait_for(server(current_port), timeout=5)
-
-        except asyncio.TimeoutError:
-            print(f"[S{id_}] port {current_port} timeout!")
-
-        except EOFError as err:
-            print(f"[S{id_}] {err}")
-            break
-
-        current_port = await port_queue.get()
-        await pass_queue.put(current_port)
+# Results
+USED_PORTS = []
+SHUT_PORTS = []
 
 
-async def main_server_run():
-    print(f"[S] Async Server Started")
-    pass_queue = asyncio.Queue()
-    port_queue = await works(max_size=100)
+def generate_queue():
+    print(f"Generating Queue from 1~{config.PORT_MAX}.")
+    q = Queue()
+    for i in range(1, config.PORT_MAX):
+        q.put(i)
 
-    # tasks = [worker(i, port_queue, pass_queue) for i in range(WORKERS)]
-    tasks = []
-    for i in range(WORKERS):
-        tasks.append(asyncio.create_task(worker(i, port_queue, pass_queue)))
-
-    async def main_handler(reader: StreamReader, writer: StreamWriter):
-        writer.write(b'Server Hello' + EOL)
-        await writer.drain()
-        recv = await reader.readuntil(EOL)
-        print(f"[S] {recv.strip(EOL).decode(ENCODING)}")
-
-        while True:
-            if not pass_queue.empty():
-                next_port = await pass_queue.get()
-
-                writer.write(str(next_port).encode(ENCODING) + EOL)
-                await writer.drain()
-                print(f"[S] Sending Port {next_port}")
-
-    try:
-        server_coroutine = await asyncio.start_server(main_handler, port=80)
-    except OSError:
-        print(f"[S][FATAL] Port {INITIAL_PORT} in use. Cannot Start.")
-    else:
-        async with server_coroutine:
-            await server_coroutine.serve_forever()
+    return q
 
 
-async def works(max_size=66535, exclude=(80, 443)):
-    work = asyncio.Queue()
-    for port in range(max_size):
-        if port + 1 in exclude:
+def worker(id_, q, send, recv, event: threading.Event):
+    q: Queue
+    send: Queue
+    recv: Queue
+
+    while not q.empty():
+
+        # check eject event.
+        if event.is_set():
+            print(SharedData.purple(f"[SS{id_:2}][Warn] Worker {id_} stopping."))
+            return
+
+        # get next work.
+        p: int = q.get()
+        q.task_done()
+
+        # check if port is in blacklist.
+        if p in config.EXCLUDE:
+            print(SharedData.cyan(f"[SS{id_:2}][Info] Skipping Port {p}."))
             continue
-        await work.put(port + 1)
 
-    return work
+        # receive worker announcement.
+        try:
+            worker_id = recv.get(timeout=TIMEOUT_FACTOR)
+        except Empty:  # Timeout
+            worker_id = 'NULL'
+
+        recv.task_done()
+        print(f"[SS{id_:2}][Info] Worker {worker_id} announce READY.")
+
+        print(f"[SS{id_:2}][Info] Sending port {p} to Client.")
+        send.put(p)
+
+        print(f"[SS{id_:2}][Info] Opening Port {p}.")
+        child_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        child_sock.settimeout(config.TIMEOUT)
+
+        try:
+            child_sock.bind(("", p))
+            child_sock.listen(1)
+            child_sock.accept()
+
+        except socket.timeout:
+            print(SharedData.red(f"[SS{id_:2}][Info] Port {p} Timeout."))
+            SHUT_PORTS.append(p)
+
+        except OSError:
+            print(SharedData.red(f"[SS{id_:2}][Warn] Port {p} in use."))
+            USED_PORTS.append(p)
+
+        else:
+            print(SharedData.green(f"[SS{id_:2}][Info] Port {p} is open."))
+
+        child_sock.close()
+
+    # Send end signal to client.
+    # first worker catching this signal will go offline.
+
+    print(SharedData.cyan(f"[SS{id_:2}][Info] Done. Sending stop signal."))
+    send.put(70000)  # causing overflow to socket in client, stopping it.
 
 
-async def handler_new(reader: StreamReader, writer: StreamWriter):
+def send_thread(q: Queue, e: threading.Event):
     while True:
-        writer.write()
+
+        try:
+            n = q.get(timeout=TIMEOUT_FACTOR)
+        except Empty:
+            if e.is_set():
+                print("[S][SEND] Event Set!")
+                break
+        else:
+            q.task_done()
+
+            try:
+                conn.send(write_b(n))
+            except (ConnectionAbortedError, ConnectionResetError):
+                print("[S][SEND] Connection reset!")
+                break
 
 
-def server_main():
-    ip = get_external_ip()
-    work = works(30)
-    loop = asyncio.get_event_loop()
-    server = loop.run_until_complete(main_server_run())
+def recv_thread(q: Queue, e: threading.Event):
+    conn.settimeout(TIMEOUT_FACTOR)
+    # making a vague assumption of timeout situation.
 
-    if server_initial_connection(ip):
-        loop.run(main_server_run())
-    else:
-        print(f"[S][FATAL] Server stopped.")
+    while True:
 
+        try:
+            data = conn.recv(65536)
+        except (ConnectionAbortedError, ConnectionResetError):
+            break
+        except socket.timeout:
+            if e.is_set():
+                print(SharedData.red(f"[S][RECV] Timeout, closing RECV thread."))
+                break
+        else:
+            if data == config.END_MARK:
+                print(SharedData.green(f"[S][RECV] Received eof <{data}>"))
+                break
 
-def server_initial_connection(ip):
-    print(f"[S] Server started at {ip}")
-
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        sock.bind((socket.gethostname(), INITIAL_PORT))
-    except OSError:
-        print(f"[S][FATAL] Port 80 already in use!")
-        return False
-
-    sock.listen(2)
-    client_socket, (client_ip, client_port) = sock.accept()
-
-    print(f"[S] Connection from {client_ip}:{client_port}")
-    print("[S] Connection successful, Starting asyncio Server")
-
-    sock.close()
-    return True
+            q.put(read_b(data))
 
 
-def get_external_ip():
-    req = request.urlopen('https://api.ipify.org')
-    data = req.read()
-    return data.decode('utf-8')
+def main():
+    # just wrapping in function makes global to local variable, runs faster.
+
+    event = threading.Event()
+    work = generate_queue()
+
+    send_q = Queue()
+    recv_q = Queue()
+
+    server_thread = [
+        threading.Thread(target=send_thread, args=[send_q, event]),
+        threading.Thread(target=recv_thread, args=[recv_q, event]),
+    ]
+
+    workers = [
+        threading.Thread(target=worker, args=[i, work, send_q, recv_q, event])
+        for i in range(config.WORKERS)
+    ]
+
+    # start threads
+    for w in chain(server_thread, workers):  # just wanted to try out chain.
+        w.start()
+
+    for w in workers:  # I need to stop server thread somehow..
+        w.join()
+
+    event.set()
+    print(SharedData.bold("[S][Info] All workers stopped."))
+
+    # send stop signal to client side RECV
+    print(SharedData.bold("[S][info] Sending kill signal to client RECV."))
+    conn.send(config.END_MARK)
+
+    for t in server_thread:
+        t.join()
+    print("[S][info] RECV/SEND stopped.")
+
+    # sending pickled port results
+    print(f"[S][Info] Sending port data.")
+    used_data = json.dumps([USED_PORTS, SHUT_PORTS])
+
+    if conn.send(used_data.encode(config.ENCODING) + config.END_MARK):
+        print(f"[S][CRIT] Socket connection broken.")
+
+    conn.close()
+
+    print("\n[Results]")
+    print(f"Used Ports  : {USED_PORTS}")
+    print(f"Closed Ports: {SHUT_PORTS}")
+    print(f"Excluded    : {config.EXCLUDE}")
+    print(f"\nAll other ports from 1~{config.PORT_MAX} is open.")
 
 
-if __name__ == '__main__':
-    server_main()
+if __name__ == "__main__":
+    main()
