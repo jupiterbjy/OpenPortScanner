@@ -6,6 +6,7 @@
     443
   ],
   "TIMEOUT": 0.4,
+  "SOCK_TIMEOUT": 5,
   "END_MARK": "OkayuKawaii",
   "WORKERS": 10,
   "ENCODING": "utf-8",

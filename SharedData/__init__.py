@@ -8,7 +8,7 @@ import pkgutil
 try:
     import colorama
 except ModuleNotFoundError:
-    print("Colorama not installed, disabling colored text.")
+    print("colorama not installed, disabling colored text.")
     COLOR = False
 else:
     colorama.init()
@@ -34,35 +34,31 @@ def get_external_ip():
     return data.decode("utf-8")
 
 
-# assuming file is placed in same structure.
-def load_config():
-    with open(loc + "/config.json") as f:
-        data = json.load(f)
-        return SimpleNamespace(**data)
-
-
 def load_config_new():
-    return SimpleNamespace(**pkgutil.get_data(__package__, 'config.json'))
-
-
-# just a convenient method
-def prepare(file):
-    set_working_dir(file)
-    return load_config()
+    data = json.loads(pkgutil.get_data(__package__, 'config.json'))
+    return SimpleNamespace(**data)
 
 
 # closure. Yield function that convert int to bytes, stores given parameters.
 def rw_bytes(byte_size: int, byte_order: str, eof: str, encoding: str):
-    size = byte_size
-    order = byte_order
 
     def write_as_byte(n: int) -> bytes:
-        return n.to_bytes(size, order)
+        # assume n is int. If not, as a debugging feature, check if data is
+        # already bytes. Send if so, raise error back otherwise.
+        try:
+            return n.to_bytes(byte_size, byte_order)
+        except AttributeError:
+            if isinstance(n, bytes):
+                return n
 
-    def read_from_byte(b: bytes):  # if eof then convert to str.
+            raise
+
+    def read_from_byte(b: bytes):
+        # if eof then convert to str. Waste of processing power.
         if b == eof.encode(encoding=encoding):
             return b.decode(encoding)
-        return int.from_bytes(b, order)
+
+        return int.from_bytes(b, byte_order)
 
     return read_from_byte, write_as_byte
 
@@ -96,6 +92,7 @@ def colorize(txt, color):
     return ansi[color] + s + ansi["END"]
 
 
+# anti lambda?
 def red(txt: str):
     return colorize(txt, 'RED')
 
