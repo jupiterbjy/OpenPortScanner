@@ -1,23 +1,24 @@
 from os import environ
+import json
+from Shared import tcp_recv, send_task, recv_task
+
 environ['PYTHONASYNCIODEBUG'] = '1'
 import asyncio
-import json
-from .Shared import tcp_recv, tcp_send
 
 try:
     import SharedData
+    print('DEBUGGING')
 except ImportError:
+    from os import getcwd
     from sys import path
-
-    path.insert(1, "../..")
-    path.insert(2, "..")
+    path.append(getcwd() + '/..')
     import SharedData
 
 
 # setup
 config = SharedData.load_config_new()
 TIMEOUT_FACTOR = config.SOCK_TIMEOUT
-READ_UNTIL = config.READ_UNTIL
+READ_UNTIL = config.READ_UNTIL.encode()
 
 
 # Wait for connection, or a proper IP:PORT input.
@@ -32,7 +33,7 @@ async def get_connection():
             print(f"[C][Warn] Cannot connect to - {host}:{port}")
         else:
             print("[C][Info] Connected")
-            return reader, writer
+            return host, reader, writer
 
 
 async def worker(id_: int, host, send, recv, event):
@@ -51,14 +52,11 @@ async def worker(id_: int, host, send, recv, event):
             await send.put(id_)
 
             try:
-                p = await asyncio.wait_for(recv.get(), timeout=TIMEOUT_FACTOR)
+                p = int(await asyncio.wait_for(recv.get(), timeout=TIMEOUT_FACTOR))
+                recv.task_done()
             except asyncio.TimeoutError:
                 continue
-
-            recv.task_done()
-            print(f"[CS{id_:2}][Info] Worker {id_:2} received {p}.")
-
-            if p > config.PORT_MAX:
+            except TypeError:
                 print(SharedData.cyan(f"[CS{id_:2}][Info] Stop Signal received!"))
                 break
 
@@ -83,66 +81,21 @@ async def worker(id_: int, host, send, recv, event):
     print(SharedData.bold(f"[CS{id_:2}][INFO] Task Finished."))
 
 
-async def send_task(s_sender, q, e):
-    s_sender: asyncio.StreamWriter
-    q: asyncio.Queue
-    e: asyncio.Event
-
-    while True:
-        try:
-            n = await asyncio.wait_for(q.get(), timeout=TIMEOUT_FACTOR)
-        except asyncio.TimeoutError:
-            if e.is_set():
-                print(SharedData.bold("[C][SEND][INFO] Event set!"))
-                break
-        else:
-            q.task_done()
-
-            try:
-                await tcp_send(
-                    str(n).encode(), s_sender, READ_UNTIL, timeout=TIMEOUT_FACTOR
-                )
-
-            except asyncio.TimeoutError:
-                # really just want to use logging and dump logs in other thread..
-                print(SharedData.red("[C][Send][CRIT] Timeout while sending!"))
-                raise
-
-
-async def recv_task(s_receiver, q, e):
-    s_receiver: asyncio.StreamReader
-    q: asyncio.Queue
-    e: asyncio.Event
-
-    while True:
-        try:
-            data = await asyncio.wait_for(
-                s_receiver.readuntil(), timeout=TIMEOUT_FACTOR
-            )
-        except asyncio.TimeoutError:
-            if e.is_set():
-                print(SharedData.bold(f"[C][RECV][INFO] Event set!"))
-                break
-        else:
-
-            await q.put(int(data))
-
-
 async def main():
 
-    s_recv, s_send = get_connection()
+    host, s_recv, s_send = await get_connection()
 
     event = asyncio.Event()
     send_q = asyncio.Queue()
     recv_q = asyncio.Queue()
 
     server_task = [
-        asyncio.create_task(send_task(s_send, send_q, event)),
-        asyncio.create_task(recv_task(s_recv, recv_q, event)),
+        asyncio.create_task(send_task(s_send, send_q, event, READ_UNTIL, TIMEOUT_FACTOR)),
+        asyncio.create_task(recv_task(s_recv, recv_q, event, READ_UNTIL, TIMEOUT_FACTOR)),
     ]
 
     workers = [
-        asyncio.create_task(worker(i, send_q, recv_q, event))
+        asyncio.create_task(worker(i, host, send_q, recv_q, event))
         for i in range(config.WORKERS)
     ]
 
@@ -172,9 +125,8 @@ async def main():
 
         # load pickled result from INIT port
         print("[C][Info] Fetching Port data from server.")
-        data = s_recv.readuntil()
-        used_ports, shut_ports = json.loads(data.decode(config.ENCODING))
-        c_sock.close()
+        data = await tcp_recv(s_recv, READ_UNTIL, TIMEOUT_FACTOR)
+        used_ports, shut_ports = json.loads(data)
 
         print("\n[Results]")
         print(f"Used Ports  : {used_ports}")
