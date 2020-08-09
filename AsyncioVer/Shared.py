@@ -17,6 +17,15 @@ except ImportError:
 
 
 async def tcp_recv(reader: asyncio.StreamReader, delimiter: bytes, timeout=None) -> str:
+    """
+    Receives string result.
+
+    :param reader: asyncio.StreamReader
+    :param delimiter: bytes
+    :param timeout: numbers
+    :return: str
+    """
+
     try:
         data_length = await asyncio.wait_for(
             await reader.readuntil(delimiter), timeout=timeout
@@ -36,11 +45,20 @@ async def tcp_recv(reader: asyncio.StreamReader, delimiter: bytes, timeout=None)
 
 
 async def tcp_send(data, sender: asyncio.StreamWriter, delimiter: bytes, timeout=None):
+    """
+    Get data, convert to str before encoding for simplicity.
+
+    :param data: any
+    :param sender: asyncio.StreamWriter
+    :param delimiter: bytes
+    :param timeout: numbers
+    :return: None
+    """
+
     data_byte = str(data).encode()
     try:
         data_length = len(data_byte)
         sender.write(str(data_length).encode() + delimiter + data_byte)
-        # will default to ascii
 
     except TypeError:
         msg = "function 'tcp_recv' expects"

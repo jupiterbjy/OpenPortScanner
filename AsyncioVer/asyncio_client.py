@@ -73,10 +73,12 @@ async def worker(id_: int, host, send, recv, event):
             else:
                 print(SharedData.green(f"[CS{id_:2}][Info] Port {p} is open."))
                 child_send.close()
-    finally:
+
+    except Exception:
         # trigger event to stop all threads.
         print(SharedData.red(f"[CS{id_:2}][CRIT] Exception Event set!."))
         event.set()
+        raise
 
     print(SharedData.bold(f"[CS{id_:2}][INFO] Task Finished."))
 
@@ -103,6 +105,8 @@ async def main():
     for t in workers:
         await t
 
+    print(SharedData.bold("[C][info] All workers stopped."))
+
     if event.is_set():  # if set, then worker crashed and set the alarm!
         # TODO: put some crash message
 
@@ -112,28 +116,13 @@ async def main():
             await t
 
         print("all task completed.")
+        return
 
-    else:
-
-        event.set()
-        print(SharedData.bold("[C][info] All workers stopped."))
-
-        # waiting for SEND / RECV to stop
-        # due to timeout feature, if event is set - they'll timeout and finish.
-        for t in server_task:
-            await t
-
-        # load pickled result from INIT port
-        print("[C][Info] Fetching Port data from server.")
-        data = await tcp_recv(s_recv, READ_UNTIL, TIMEOUT_FACTOR)
-        used_ports, shut_ports = json.loads(data)
-
-        print("\n[Results]")
-        print(f"Used Ports  : {used_ports}")
-        print(f"Closed Ports: {shut_ports}")
-        print(f"Excluded    : {config.EXCLUDE}")
-        print(f"\nAll other ports from 1~{config.PORT_MAX} is open.")
-
+    # waiting for SEND / RECV to stop
+    # due to timeout feature, if event is set - they'll timeout and finish.
+    event.set()
+    for t in server_task:
+        await t
 
 if __name__ == "__main__":
     asyncio.run(main())
