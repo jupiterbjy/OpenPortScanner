@@ -1,6 +1,8 @@
+from os import environ
+environ['PYTHONASYNCIODEBUG'] = '1'
 import asyncio
 import json
-from itertools import chain
+from .Shared import tcp_recv, tcp_send
 
 try:
     import SharedData
@@ -15,13 +17,11 @@ except ImportError:
 # setup
 config = SharedData.load_config_new()
 TIMEOUT_FACTOR = config.SOCK_TIMEOUT
-read_b, write_b = SharedData.rw_bytes(
-    config.BYTE_SIZE, config.BYTE_ORDER, config.END_MARK, config.ENCODING
-)
+READ_UNTIL = config.READ_UNTIL
 
 
 # Wait for connection, or a proper IP:PORT input.
-def get_connection():
+async def get_connection():
     while True:
         host, port = input("Host [IP:Port] >> ").split(":")
         # host, port = ''.split(":")
@@ -35,20 +35,24 @@ def get_connection():
             return reader, writer
 
 
-async def worker(id_: int, send, recv, event: asyncio.Event):
+async def worker(id_: int, host, send, recv, event):
     q: asyncio.Queue
     send: asyncio.Queue
     recv: asyncio.Queue
+    event: asyncio.Event
 
     try:
+        # if one thread crashes, will trigger event and gradually stop all threads.
+
         while not event.is_set():
+
             # announce server that the worker is ready.
             print(f"[CS{id_:2}][Info] Worker {id_:2} READY.")
-            send.put(id_)
+            await send.put(id_)
 
             try:
-                p = recv.get()
-            except Empty:
+                p = await asyncio.wait_for(recv.get(), timeout=TIMEOUT_FACTOR)
+            except asyncio.TimeoutError:
                 continue
 
             recv.task_done()
@@ -59,25 +63,24 @@ async def worker(id_: int, send, recv, event: asyncio.Event):
                 break
 
             print(f"[CS{id_:2}][Info] Connecting Port {p}.")
-            child_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            child_sock.settimeout(config.TIMEOUT)
-
             try:
-                child_sock.connect((host, p))
+                child_recv, child_send = await asyncio.open_connection(host, p)
 
-            except socket.timeout:
-                print(SharedData.red(f"[CS{id_:2}][Info] Port {p} Timeout."))
+            except asyncio.TimeoutError:
+                print(SharedData.purple(f"[CS{id_:2}][Info] Port {p} Timeout."))
 
             except OSError:
                 print(SharedData.red(f"[CS{id_:2}][Warn] Port {p} in use."))
 
             else:
                 print(SharedData.green(f"[CS{id_:2}][Info] Port {p} is open."))
-
-            child_sock.close()
+                child_send.close()
     finally:
         # trigger event to stop all threads.
+        print(SharedData.red(f"[CS{id_:2}][CRIT] Exception Event set!."))
         event.set()
+
+    print(SharedData.bold(f"[CS{id_:2}][INFO] Task Finished."))
 
 
 async def send_task(s_sender, q, e):
@@ -90,14 +93,15 @@ async def send_task(s_sender, q, e):
             n = await asyncio.wait_for(q.get(), timeout=TIMEOUT_FACTOR)
         except asyncio.TimeoutError:
             if e.is_set():
-                print(SharedData.green("[C][SEND][INFO] Event set!"))
+                print(SharedData.bold("[C][SEND][INFO] Event set!"))
                 break
         else:
             q.task_done()
 
             try:
-                s_sender.write(write_b(n))
-                await asyncio.wait_for(s_sender.drain(), timeout=TIMEOUT_FACTOR)
+                await tcp_send(
+                    str(n).encode(), s_sender, READ_UNTIL, timeout=TIMEOUT_FACTOR
+                )
 
             except asyncio.TimeoutError:
                 # really just want to use logging and dump logs in other thread..
@@ -113,18 +117,15 @@ async def recv_task(s_receiver, q, e):
     while True:
         try:
             data = await asyncio.wait_for(
-                s_receiver.readuntil(config.READ_UNTIL), timeout=TIMEOUT_FACTOR
+                s_receiver.readuntil(), timeout=TIMEOUT_FACTOR
             )
         except asyncio.TimeoutError:
             if e.is_set():
-                print(SharedData.green(f"[C][RECV][INFO] Event set!"))
+                print(SharedData.bold(f"[C][RECV][INFO] Event set!"))
                 break
         else:
-            if data == config.END_MARK:
-                print(SharedData.green(f"[C][RECV][INFO] Received eof <{data}>"))
-                break
 
-            await q.put(read_b(data))
+            await q.put(int(data))
 
 
 async def main():
@@ -152,12 +153,12 @@ async def main():
     if event.is_set():  # if set, then worker crashed and set the alarm!
         # TODO: put some crash message
 
-        print('task failed! waiting for server task to complete.')
+        print("task failed! waiting for server task to complete.")
 
         for t in server_task:
             await t
 
-        print('all task completed.')
+        print("all task completed.")
 
     else:
 
@@ -171,7 +172,7 @@ async def main():
 
         # load pickled result from INIT port
         print("[C][Info] Fetching Port data from server.")
-        data = recv_until_eof(c_sock, config.END_MARK)
+        data = s_recv.readuntil()
         used_ports, shut_ports = json.loads(data.decode(config.ENCODING))
         c_sock.close()
 

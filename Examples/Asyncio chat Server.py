@@ -19,12 +19,13 @@ def get_external_ip():
 async def send(writer: StreamWriter):
     while True:
         msg = await ainput("send << ")
-        writer.write(msg.encode(ENCODING))
+        writer.write(msg.encode(ENCODING) + b'\n')
+        await writer.drain()
 
 
 async def read(reader: StreamReader):
     while True:
-        got = await reader.read(1024)
+        got = await reader.readuntil()
         print(f"recv >> {got.decode(ENCODING)}")
 
 
@@ -34,8 +35,10 @@ async def main_server():
     print(f"Connect client to {ip}:{port}")
 
     async def handler(reader: StreamReader, writer: StreamWriter):
-        tasks = [asyncio.create_task(send(writer)),
-                 asyncio.create_task(read(reader))]
+        sender = asyncio.create_task(send(writer))
+        reader = asyncio.create_task(read(reader))
+        await sender
+        await reader
 
     try:
         server_coroutine = await asyncio.start_server(handler, port=port)
@@ -56,8 +59,10 @@ async def main_client():
     except OSError:
         print(f"Port {port} already in use.")
     else:
-        asyncio.create_task(send(writer))
-        asyncio.create_task(read(reader))
+        s = asyncio.create_task(send(writer))
+        r = asyncio.create_task(read(reader))
+        await s
+        await r
 
 
 if __name__ == '__main__':
