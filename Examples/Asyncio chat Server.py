@@ -4,20 +4,51 @@ from urllib import request
 from asyncio import StreamReader, StreamWriter
 
 INITIAL_PORT = 80
-ENCODING = 'utf-8'
-KILL = 'STOP'
+ENCODING = "utf-8"
+DELIMIT = b"%%"
+KILL = "STOP"
+
+
+# Type STOP on both side to Finish program.
+# Call STOP on one side will finish send, and recv on opposing.
 
 
 def get_external_ip():
-    req = request.urlopen('https://api.ipify.org')
+    req = request.urlopen("https://api.ipify.org")
     data = req.read()
-    return data.decode('utf-8')
+    return data.decode("utf-8")
+
+
+async def tcp_recv(reader: asyncio.StreamReader, delimiter: bytes, timeout=None) -> str:
+    """
+    Receives string result. Accepts timeout.
+    """
+    data_length: bytes = await asyncio.wait_for(
+        reader.readuntil(delimiter), timeout=timeout
+    )
+    data = await asyncio.wait_for(
+        reader.readexactly(int(data_length.strip(delimiter))), timeout=timeout
+    )
+    return data.decode()
+
+
+async def tcp_send(data, sender: asyncio.StreamWriter, delimiter: bytes, timeout=None):
+    """
+    Get data, convert to str before encoding for simplicity.
+    DO NOT PASS BYTES TO DATA! Or will end up receiving b'b'1231''.
+    """
+    data_byte = str(data).encode()
+
+    data_length = len(data_byte)
+    sender.write(str(data_length).encode() + delimiter + data_byte)
+
+    await asyncio.wait_for(sender.drain(), timeout=timeout)
 
 
 async def send(writer: StreamWriter, e: asyncio.Event):
     while not e.is_set():
         msg = await ainput("send << ")
-        writer.write(msg.encode(ENCODING) + b'\n')
+        await tcp_send(msg, writer, DELIMIT)
         await writer.drain()
 
         if KILL in msg:
@@ -26,10 +57,10 @@ async def send(writer: StreamWriter, e: asyncio.Event):
 
 async def read(reader: StreamReader, e: asyncio.Event):
     while not e.is_set():
-        got = await reader.readuntil()
-        print(f"recv >> {got.decode(ENCODING)}")
+        got = await tcp_recv(reader, DELIMIT)
+        print(f"recv >> {got}")
 
-        if KILL in got.decode(ENCODING):
+        if KILL in got:
             e.set()
 
 
@@ -43,6 +74,7 @@ async def main_server():
         event2 = asyncio.Event()
         sender = asyncio.create_task(send(writer, event2))
         reader = asyncio.create_task(read(reader, event2))
+        print("[S] all task up and running!")
         await sender
         await reader
 
@@ -63,7 +95,7 @@ async def main_server():
 
 async def main_client():
     raw = input("Enter Address: ")
-    ip, port = raw.split(':')
+    ip, port = raw.split(":")
     event = asyncio.Event()
 
     try:
@@ -78,12 +110,16 @@ async def main_client():
 
         writer.close()
         await writer.wait_closed()
-        print('Bye!')
+        print("Bye!")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
+    import logging
+
+    logging.getLogger("asyncio").setLevel(logging.DEBUG)
+
     mode = input("Type 0 for server, 1 for client.\n >>")
-    if '1' in mode:
-        asyncio.run(main_client())
+    if "1" in mode:
+        asyncio.run(main_client(), debug=False)
     else:
-        asyncio.run(main_server())
+        asyncio.run(main_server(), debug=False)
