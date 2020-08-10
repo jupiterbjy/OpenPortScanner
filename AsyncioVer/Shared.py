@@ -19,16 +19,11 @@ except ImportError:
 async def tcp_recv(reader: asyncio.StreamReader, delimiter: bytes, timeout=None) -> str:
     """
     Receives string result.
-
-    :param reader: asyncio.StreamReader
-    :param delimiter: bytes
-    :param timeout: numbers
-    :return: str
     """
 
     try:
-        data_length = await asyncio.wait_for(
-            await reader.readuntil(delimiter), timeout=timeout
+        data_length: bytes = await asyncio.wait_for(
+            reader.readuntil(delimiter), timeout=timeout
         )
     except TypeError:
         msg = "function 'tcp_recv' expects"
@@ -40,19 +35,16 @@ async def tcp_recv(reader: asyncio.StreamReader, delimiter: bytes, timeout=None)
 
         raise
 
-    data = await asyncio.wait_for(reader.readexactly(int(data_length)), timeout=timeout)
+    data = await asyncio.wait_for(
+        reader.readexactly(int(data_length.strip(delimiter))), timeout=timeout
+    )
     return data.decode()
 
 
 async def tcp_send(data, sender: asyncio.StreamWriter, delimiter: bytes, timeout=None):
     """
     Get data, convert to str before encoding for simplicity.
-
-    :param data: any
-    :param sender: asyncio.StreamWriter
-    :param delimiter: bytes
-    :param timeout: numbers
-    :return: None
+    DO NOT PASS BYTES TO DATA! Or will end up receiving b'b'1231''.
     """
 
     data_byte = str(data).encode()
@@ -80,6 +72,7 @@ async def send_task(
     delimiter: bytes,
     timeout=None,
 ):
+    print("[SEND][DEBUG] Started")
 
     try:
         while True:
@@ -92,15 +85,16 @@ async def send_task(
                     return
             else:
                 try:
-                    await tcp_send(str(n).encode(), s_sender, delimiter, timeout)
+                    await tcp_send(n, s_sender, delimiter, timeout)
 
                 except asyncio.TimeoutError:
                     # really just want to use logging and dump logs in other thread..
                     print(SharedData.red("[Send][CRIT] Connection Broken!"))
                     break
-    finally:
+    except Exception:
         print(SharedData.bold("[SEND][CRIT] Stopping SEND!"))
         e.set()
+        raise
 
 
 async def recv_task(
@@ -110,6 +104,7 @@ async def recv_task(
     delimiter: bytes,
     timeout=None,
 ):
+    print("[RECV][DEBUG] Started")
 
     try:
         while True:
@@ -121,6 +116,7 @@ async def recv_task(
                     return
             else:
                 await q.put(data)
-    finally:
+    except Exception:
         print(SharedData.bold("[SEND][CRIT] Stopping SEND!"))
         e.set()
+        raise

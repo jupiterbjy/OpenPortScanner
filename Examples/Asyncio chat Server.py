@@ -19,30 +19,33 @@ def get_external_ip():
     return data.decode("utf-8")
 
 
-async def tcp_recv(reader: asyncio.StreamReader, delimiter: bytes, timeout=None) -> str:
+# PROTOCOL START ---------------------------------------
+# Just read until delimiter, then convert value to int.
+# that's length of rest of message.
+
+async def tcp_recv(reader: asyncio.StreamReader, delimiter: bytes) -> str:
     """
-    Receives string result. Accepts timeout.
+    Receives string result.
     """
-    data_length: bytes = await asyncio.wait_for(
-        reader.readuntil(delimiter), timeout=timeout
-    )
-    data = await asyncio.wait_for(
-        reader.readexactly(int(data_length.strip(delimiter))), timeout=timeout
-    )
+    data_length: bytes = await reader.readuntil(delimiter)
+    data = await reader.readexactly(int(data_length.strip(delimiter)))
+
     return data.decode()
 
 
-async def tcp_send(data, sender: asyncio.StreamWriter, delimiter: bytes, timeout=None):
+async def tcp_send(data, sender: asyncio.StreamWriter, delimiter: bytes):
     """
     Get data, convert to str before encoding for simplicity.
     DO NOT PASS BYTES TO DATA! Or will end up receiving b'b'1231''.
     """
     data_byte = str(data).encode()
-
     data_length = len(data_byte)
+
     sender.write(str(data_length).encode() + delimiter + data_byte)
 
-    await asyncio.wait_for(sender.drain(), timeout=timeout)
+    await sender.drain()
+
+# PROTOCOL END -----------------------------------------
 
 
 async def send(writer: StreamWriter, e: asyncio.Event):

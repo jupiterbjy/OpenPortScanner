@@ -1,5 +1,6 @@
 from os import environ
 import json
+from typing import Callable
 from Shared import tcp_recv, tcp_send, send_task, recv_task
 
 environ["PYTHONASYNCIODEBUG"] = "1"
@@ -16,7 +17,6 @@ except ImportError:
     path.append(getcwd() + "/..")
     import SharedData
 
-
 # TODO: change to logging instead of print
 # find port with this Power-shell script
 # Get-Process -Id (Get-NetTCPConnection -LocalPort 80).OwningProcess
@@ -31,6 +31,8 @@ READ_UNTIL = config.READ_UNTIL.encode()
 # Results
 USED_PORTS = []
 SHUT_PORTS = []
+
+
 # TODO: convert to queue
 
 
@@ -40,32 +42,49 @@ async def main_handler(
     send: asyncio.StreamWriter,
     send_q: asyncio.Queue,
     recv_q: asyncio.Queue,
-    e: asyncio.Event,
+    fail_ev: asyncio.Event,
+    start_ev: asyncio.Event
 ):
+    """
+    Main handler of server.
+    Feed additional parameters with use of <lambda send, recv: main_handler(...)>,
+    """
 
-    server_tasks = [send_task(send, send_q, e, READ_UNTIL, TIMEOUT_FACTOR),
-                    recv_task(recv, recv_q, e, READ_UNTIL, TIMEOUT_FACTOR)]
+    print(f"[S][INFO] Connected.")
+    start_ev.set()  # start loading workers.
+
+    server_tasks = (
+        send_task(send, send_q, fail_ev, READ_UNTIL, TIMEOUT_FACTOR),
+        recv_task(recv, recv_q, fail_ev, READ_UNTIL, TIMEOUT_FACTOR),
+    )
+
+    gather_task = asyncio.gather(*server_tasks)
     # cancellation on asyncio.gather cause all coroutines in seq to cancel.
-    gather_task = asyncio.gather(server_tasks)
+    # gather_task.cancel()
 
     await gather_task
+    send.close()
 
 
-async def get_connection():
+async def get_connection(handler: Callable):
     while True:
         try:
             port = int(input("Port >> "))
             if port > 65536:
                 raise TypeError
+
         except TypeError:
             print(f"[S][WARN] Port invalid.")
+
         else:
             print(f"[S][INFO] Connect client to: {IP}:{port}")
+
             try:
-                server_co = await asyncio.start_server(main_handler, port=port)
+                server_co = await asyncio.start_server(handler, port=port)
+
             except OSError:
                 print(SharedData.red(f"[S][Crit] Cannot open server at {port}."))
-                exit()
+
             else:
                 return server_co
 
@@ -84,10 +103,12 @@ async def worker(id_, q, send, recv, event: asyncio.Event):
     send: asyncio.Queue
     recv: asyncio.Queue
 
-    async def worker_handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    async def worker_handler(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ):
         print(f"[SS{id_:2}][INFO] Opening Port {p}.")
         try:
-            writer.write(b'1')
+            writer.write(b"1")
             await asyncio.wait_for(writer.drain(), timeout=TIMEOUT_FACTOR)
 
         except asyncio.TimeoutError:
@@ -100,7 +121,7 @@ async def worker(id_, q, send, recv, event: asyncio.Event):
             handler_event.set()
 
     try:
-        while not q.empty() and event.is_set():
+        while not q.empty() and not event.is_set():
 
             # get next work.
             p: int = await q.get()
@@ -145,30 +166,26 @@ async def worker(id_, q, send, recv, event: asyncio.Event):
         print(SharedData.red(f"[SS{id_:2}][CRIT] Exception Event set!."))
         event.set()
         raise
-    
+
     if event.is_set():
         print(SharedData.bold(f"[SS{id_:2}][WARN] Task Finished by event."))
     else:
         print(SharedData.bold(f"[SS{id_:2}][INFO] Task Finished."))
 
 
-async def main():
-
-    server_co = await get_connection()
-
-    event = asyncio.Event()
-    send_q = asyncio.Queue()
-    recv_q = asyncio.Queue()
-    work = generate_queue()
-
-    with server_co:
-        await server_co.start_serving()
-
-    print(f"[S][INFO] Connected.")
+async def run_workers(
+        workers_max: int,
+        works: asyncio.Queue,
+        send: asyncio.Queue,
+        recv: asyncio.Queue,
+        e: asyncio.Event,
+):
+    """
+    Handle worker tasks.
+    """
 
     workers = [
-        asyncio.create_task(worker(i, work, send_q, recv_q, event))
-        for i in range(config.WORKERS)
+        asyncio.create_task(worker(i, works, send, recv, e)) for i in range(workers_max)
     ]
 
     for t in workers:  # wait until workers are all complete
@@ -176,7 +193,24 @@ async def main():
 
     print(SharedData.bold("[S][info] All workers stopped."))
 
-    if event.is_set():
+
+async def main():
+    start_event = asyncio.Event()
+    fail_event = asyncio.Event()
+    send_q = asyncio.Queue()
+    recv_q = asyncio.Queue()
+    work = generate_queue()
+
+    async def handler(recv, send):
+        await main_handler(recv, send, send_q, recv_q, fail_event, start_event)
+
+    server_co = await get_connection(handler)
+
+    await server_co.start_serving()
+    await start_event.wait()
+    await run_workers(config.WORKERS, work, send_q, recv_q, fail_event)
+
+    if fail_event.is_set():
         print("task failed! waiting for server task to complete.")
         server_co.close()
         await server_co.wait_closed()
@@ -190,10 +224,13 @@ async def main():
     print(f"Excluded    : {config.EXCLUDE}")
     print(f"\nAll other ports from 1~{config.PORT_MAX} is open.")
 
-    event.set()
+    fail_event.set()
     server_co.close()
     await server_co.wait_closed()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import logging
+
+    logging.getLogger("asyncio").setLevel(logging.DEBUG)
+    asyncio.run(main(), debug=True)

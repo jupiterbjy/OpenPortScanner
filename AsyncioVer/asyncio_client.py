@@ -1,9 +1,10 @@
-from os import environ
+# from os import environ
+# environ['PYTHONASYNCIODEBUG'] = '1'
+
+import asyncio
 import json
 from Shared import tcp_recv, send_task, recv_task
 
-environ['PYTHONASYNCIODEBUG'] = '1'
-import asyncio
 
 try:
     import SharedData
@@ -55,8 +56,9 @@ async def worker(id_: int, host, send, recv, event):
                 p = int(await asyncio.wait_for(recv.get(), timeout=TIMEOUT_FACTOR))
                 recv.task_done()
             except asyncio.TimeoutError:
+                print(f"[CS{id_:2}][Info] Worker {id_:2} timeout fetching from Queue.")
                 continue
-            except TypeError:
+            except ValueError:
                 print(SharedData.cyan(f"[CS{id_:2}][Info] Stop Signal received!"))
                 break
 
@@ -125,4 +127,6 @@ async def main():
         await t
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import logging
+    logging.getLogger('asyncio').setLevel(logging.DEBUG)
+    asyncio.run(main(), debug=True)
