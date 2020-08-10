@@ -30,6 +30,9 @@ def load_config_new():
     data = json.loads(pkgutil.get_data(__package__, 'config.json'))
     data['END_MARK'] = data['END_MARK'].encode(data['ENCODING'])
 
+    if data['INIT_PORT'] not in data['EXCLUDE']:
+        data['EXCLUDE'].append(data['INIT_PORT'])
+
     return SimpleNamespace(**data)
 
 

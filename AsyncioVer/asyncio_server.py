@@ -1,7 +1,7 @@
 from os import environ
 import json
 from typing import Callable
-from Shared import tcp_recv, tcp_send, send_task, recv_task
+from Shared import send_task, recv_task
 
 environ["PYTHONASYNCIODEBUG"] = "1"
 import asyncio
@@ -22,9 +22,11 @@ except ImportError:
 # Get-Process -Id (Get-NetTCPConnection -LocalPort 80).OwningProcess
 
 
-# setup
-config = SharedData.load_config_new()
+# load config
 IP = SharedData.get_external_ip()
+config = SharedData.load_config_new()
+
+# fetch config data for a tiny bit of better access speed.
 TIMEOUT_FACTOR = config.SOCK_TIMEOUT
 READ_UNTIL = config.READ_UNTIL.encode()
 
@@ -67,26 +69,18 @@ async def main_handler(
 
 
 async def get_connection(handler: Callable):
-    while True:
-        try:
-            port = int(input("Port >> "))
-            if port > 65536:
-                raise TypeError
+    try:
+        server_co = await asyncio.start_server(handler, port=config.INIT_PORT)
+    except (TypeError, OverflowError):
+        print(f"[S][CRIT] Port invalid.")
+        raise
 
-        except TypeError:
-            print(f"[S][WARN] Port invalid.")
+    except OSError:
+        print(SharedData.red(f"[S][Crit] Cannot open server at {config.INIT_PORT}."))
 
-        else:
-            print(f"[S][INFO] Connect client to: {IP}:{port}")
-
-            try:
-                server_co = await asyncio.start_server(handler, port=port)
-
-            except OSError:
-                print(SharedData.red(f"[S][Crit] Cannot open server at {port}."))
-
-            else:
-                return server_co
+    else:
+        print(f"[S][INFO] Connect client to: {IP}:{config.INIT_PORT}")
+        return server_co
 
 
 def generate_queue():
@@ -141,8 +135,8 @@ async def worker(id_, q, send, recv, event: asyncio.Event):
             await send.put(p)
 
             handler_event = asyncio.Event()
-            child_sock = await asyncio.start_server(worker_handler, port=p)
             try:
+                child_sock = await asyncio.start_server(worker_handler, port=p)
                 await child_sock.start_serving()
 
             except OSError:
@@ -150,10 +144,8 @@ async def worker(id_, q, send, recv, event: asyncio.Event):
                 USED_PORTS.append(p)
 
             else:
-                await handler_event.wait()
-
-            finally:
                 child_sock.close()
+                await handler_event.wait()
 
         # Send end signal to client.
         # first worker catching this signal will go offline.
