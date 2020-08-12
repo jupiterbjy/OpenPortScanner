@@ -2,7 +2,6 @@
 # environ['PYTHONASYNCIODEBUG'] = '1'
 
 import asyncio
-import json
 from Shared import send_task, recv_task
 
 
@@ -18,7 +17,8 @@ except ImportError:
 
 # setup
 config = SharedData.load_config_new()
-TIMEOUT_FACTOR = config.SOCK_TIMEOUT
+# TIMEOUT_FACTOR = config.SOCK_TIMEOUT
+TIMEOUT_FACTOR = 10000
 READ_UNTIL = config.READ_UNTIL.encode()
 
 
@@ -56,8 +56,10 @@ async def worker(id_: int, host, send, recv, event):
                 p = int(await asyncio.wait_for(recv.get(), timeout=TIMEOUT_FACTOR))
                 recv.task_done()
             except asyncio.TimeoutError:
-                print(f"[CS{id_:2}][Info] Worker {id_:2} timeout fetching from Queue.")
-                continue
+                print(SharedData.red(f"[CS{id_:2}][CRIT] Worker {id_:2} timeout fetching from Queue."))
+                event.set()  # <<<
+                break
+
             except ValueError:
                 print(SharedData.cyan(f"[CS{id_:2}][Info] Stop Signal received!"))
                 break
@@ -74,7 +76,9 @@ async def worker(id_: int, host, send, recv, event):
 
             else:
                 print(SharedData.green(f"[CS{id_:2}][Info] Port {p} is open."))
+                await child_recv.readexactly(1)
                 child_send.close()
+                await child_send.wait_closed()
 
     except Exception:
         # trigger event to stop all threads.
@@ -125,6 +129,10 @@ async def main():
     event.set()
     for t in server_task:
         await t
+
+    # wait until server is closed - preventing RuntimeError.
+    s_send.close()
+    await s_send.wait_closed()
 
 if __name__ == "__main__":
     import logging

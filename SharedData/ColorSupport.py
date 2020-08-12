@@ -1,5 +1,3 @@
-from functools import wraps
-
 def colorize_closure():
     try:
         import colorama
