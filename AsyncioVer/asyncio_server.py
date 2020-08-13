@@ -1,5 +1,5 @@
 from typing import Callable
-from Shared import send_task, recv_task
+from Shared import send_task, recv_task, tcp_recv, tcp_send
 import asyncio
 
 try:
@@ -74,6 +74,7 @@ async def get_connection(handler: Callable):
 
     except OSError:
         print(SharedData.red(f"[S][Crit] Cannot open server at {config.INIT_PORT}."))
+        raise
 
     else:
         print(f"[S][INFO] Connect client to: {IP}:{config.INIT_PORT}")
@@ -94,25 +95,15 @@ async def worker(id_, q, send, recv, event: asyncio.Event):
     send: asyncio.Queue
     recv: asyncio.Queue
 
-    handle_finished = asyncio.Event()
-
     async def worker_handler(
-        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter, port: int,
+            handle_finished: asyncio.Event
     ):
-        print(f"[SS{id_:2}][INFO] Opening Port {p}.")
-        try:
-            writer.write(b"1")  # just a single byte to check connection.
-            await asyncio.wait_for(writer.drain(), timeout=TIMEOUT_FACTOR)
+        print(SharedData.green(f"[SS{id_:2}][INFO] Port {port} is open."))
 
-        except asyncio.TimeoutError:
-            print(SharedData.red(f"[SS{id_:2}][INFO] Port {p} Timeout."))
-            SHUT_PORTS.append(p)
-        else:
-            print(SharedData.green(f"[SS{id_:2}][INFO] Port {p} is open."))
-        finally:
-            writer.close()
-            await writer.wait_closed()
-            handle_finished.set()
+        writer.close()
+        await writer.wait_closed()
+        handle_finished.set()
 
     try:
         while not q.empty() and not event.is_set():
@@ -132,21 +123,31 @@ async def worker(id_, q, send, recv, event: asyncio.Event):
             recv.task_done()
             print(f"[SS{id_:2}][INFO] Worker {worker_id} requests task.")
 
-            print(f"[SS{id_:2}][INFO] Sending port {p} to Client.")
+            print(f"[SS{id_:2}][INFO] Sending port {p} to client.")
             await send.put(p)
 
+            handle_ev = asyncio.Event()
+
+            print(f"[SS{id_:2}][INFO] Trying to serve port {p}.")
             try:
-                child_sock = await asyncio.start_server(worker_handler, port=p)
-                await child_sock.start_serving()
-                await handle_finished.wait()
+                child_sock = await asyncio.start_server(
+                    lambda r, w: worker_handler(r, w, p, handle_ev), port=p)
+
+            except AssertionError:
+                print(SharedData.red(f"[SS{id_:2}][INFO] Port {p} assertion failed!"))
+                SHUT_PORTS.append(p)
 
             except OSError:
                 print(SharedData.red(f"[SS{id_:2}][Warn] Port {p} in use."))
                 USED_PORTS.append(p)
 
             else:
-                child_sock.close()
-                await child_sock.wait_closed()
+                try:
+                    await child_sock.start_serving()
+                    await handle_ev.wait()
+                finally:
+                    child_sock.close()
+                    await child_sock.wait_closed()
 
         # Send end signal to client.
         # first worker catching this signal will go offline.

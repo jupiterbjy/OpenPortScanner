@@ -2,8 +2,7 @@
 # environ['PYTHONASYNCIODEBUG'] = '1'
 
 import asyncio
-from Shared import send_task, recv_task
-
+from Shared import send_task, recv_task, tcp_recv
 
 try:
     import SharedData
@@ -25,8 +24,8 @@ READ_UNTIL = config.READ_UNTIL.encode()
 # Wait for connection, or a proper IP:PORT input.
 async def get_connection():
     while True:
-        host, port = input("Host [IP:Port] >> ").split(":")
-        # host, port = ''.split(":")
+        # host, port = input("Host [IP:Port] >> ").split(":")
+        host, port = '127.0.0.1:39'.split(":")  # debug
         port = int(port)
         try:
             reader, writer = await asyncio.open_connection(host, port)
@@ -69,14 +68,14 @@ async def worker(id_: int, host, send, recv, event):
                 child_recv, child_send = await asyncio.open_connection(host, p)
 
             except asyncio.TimeoutError:
-                print(SharedData.purple(f"[CS{id_:2}][Info] Port {p} Timeout."))
+                print(SharedData.purple(f"[CS{id_:2}][Info] Port {p} timeout."))
 
             except OSError:
-                print(SharedData.red(f"[CS{id_:2}][Warn] Port {p} in use."))
+                print(SharedData.red(f"[CS{id_:2}][Warn] Port {p} connection refused."))
 
             else:
                 print(SharedData.green(f"[CS{id_:2}][Info] Port {p} is open."))
-                await child_recv.readexactly(1)
+
                 child_send.close()
                 await child_send.wait_closed()
 
