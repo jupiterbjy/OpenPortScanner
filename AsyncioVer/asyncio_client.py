@@ -16,8 +16,8 @@ except ImportError:
 
 # setup
 config = SharedData.load_config_new()
-# TIMEOUT_FACTOR = config.SOCK_TIMEOUT
-TIMEOUT_FACTOR = 10000
+TIMEOUT_FACTOR = config.SOCK_TIMEOUT
+# TIMEOUT_FACTOR = 10000
 READ_UNTIL = config.READ_UNTIL.encode()
 
 
@@ -55,9 +55,8 @@ async def worker(id_: int, host, send, recv, event):
                 p = int(await asyncio.wait_for(recv.get(), timeout=TIMEOUT_FACTOR))
                 recv.task_done()
             except asyncio.TimeoutError:
-                print(SharedData.red(f"[CS{id_:2}][CRIT] Worker {id_:2} timeout fetching from Queue."))
-                event.set()  # <<<
-                break
+                print(SharedData.red(f"[CS{id_:2}][WARN] Worker {id_:2} timeout fetching from Queue."))
+                continue
 
             except ValueError:
                 print(SharedData.cyan(f"[CS{id_:2}][Info] Stop Signal received!"))
@@ -65,7 +64,8 @@ async def worker(id_: int, host, send, recv, event):
 
             print(f"[CS{id_:2}][Info] Connecting Port {p}.")
             try:
-                child_recv, child_send = await asyncio.open_connection(host, p)
+                child_recv, child_send = await asyncio.wait_for(asyncio.open_connection(host, p), TIMEOUT_FACTOR)
+                print(await tcp_recv(child_recv, b'%', timeout=TIMEOUT_FACTOR))
 
             except asyncio.TimeoutError:
                 print(SharedData.purple(f"[CS{id_:2}][Info] Port {p} timeout."))
@@ -74,7 +74,8 @@ async def worker(id_: int, host, send, recv, event):
                 print(SharedData.red(f"[CS{id_:2}][Warn] Port {p} connection refused."))
 
             else:
-                print(SharedData.green(f"[CS{id_:2}][Info] Port {p} is open."))
+                print(f"[CS{id_:2}][Info] Port {p} open.")
+                print(SharedData.green(f"[CS{id_:2}][Info] Port {p} is available."))
 
                 child_send.close()
                 await child_send.wait_closed()

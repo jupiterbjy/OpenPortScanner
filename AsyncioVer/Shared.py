@@ -111,12 +111,19 @@ async def recv_task(
             try:
                 data = await tcp_recv(s_receiver, delimiter, timeout)
             except asyncio.TimeoutError:
+                print('TIMEOUT')
                 if e.is_set():
                     print(SharedData.bold(f"[RECV][INFO] Event set!"))
                     return
+            except asyncio.IncompleteReadError:
+                print(SharedData.red(f"[RECV][CRIT] Disconnected!"))
+                e.set()
+                return
+
             else:
                 await q.put(data)
+
     except Exception:
-        print(SharedData.bold("[SEND][CRIT] Stopping SEND!"))
+        print(SharedData.bold("[RECV][CRIT] Stopping SEND!"))
         e.set()
         raise

@@ -84,7 +84,7 @@ async def get_connection(handler: Callable):
 def generate_queue():
     print(f"Generating Queue from 1~{config.PORT_MAX}.")
     q = asyncio.Queue()
-    for i in range(1, config.PORT_MAX):
+    for i in range(1, config.PORT_MAX + 1):
         q.put_nowait(i)
 
     return q
@@ -99,6 +99,8 @@ async def worker(id_, q, send, recv, event: asyncio.Event):
         reader: asyncio.StreamReader, writer: asyncio.StreamWriter, port: int,
             handle_finished: asyncio.Event
     ):
+        print(SharedData.green(f"[SS{id_:2}][INFO] --- IN HANDLER ---"))
+        await tcp_send(p, writer, b'%', timeout=TIMEOUT_FACTOR)
         print(SharedData.green(f"[SS{id_:2}][INFO] Port {port} is open."))
 
         writer.close()
@@ -130,8 +132,8 @@ async def worker(id_, q, send, recv, event: asyncio.Event):
 
             print(f"[SS{id_:2}][INFO] Trying to serve port {p}.")
             try:
-                child_sock = await asyncio.start_server(
-                    lambda r, w: worker_handler(r, w, p, handle_ev), port=p)
+                child_sock = await asyncio.wait_for(asyncio.start_server(
+                    lambda r, w: worker_handler(r, w, p, handle_ev), port=p), TIMEOUT_FACTOR)
 
             except AssertionError:
                 print(SharedData.red(f"[SS{id_:2}][INFO] Port {p} assertion failed!"))
@@ -144,7 +146,10 @@ async def worker(id_, q, send, recv, event: asyncio.Event):
             else:
                 try:
                     await child_sock.start_serving()
-                    await handle_ev.wait()
+                    await asyncio.wait_for(handle_ev.wait(), TIMEOUT_FACTOR)
+
+                except asyncio.TimeoutError:
+                    print(SharedData.red(f"[SS{id_:2}][Warn] Port {p} timeout."))
                 finally:
                     child_sock.close()
                     await child_sock.wait_closed()

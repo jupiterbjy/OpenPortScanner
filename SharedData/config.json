@@ -1,5 +1,5 @@
 {
-  "PORT_MAX": 200,
+  "PORT_MAX": 1000,
 
   "INIT_PORT": 39,
   "EXCLUDE": [
@@ -10,7 +10,7 @@
   "SOCK_TIMEOUT": 1,
   "READ_UNTIL": "%",
   "END_MARK": "Temanyan! —ฅ/ᐠ. ꞈ.ᐟ\\ฅ —",
-  "WORKERS": 1,
+  "WORKERS": 4,
   "ENCODING": "utf-8",
   "BYTE_ORDER": "big",
   "BYTE_SIZE": 6
