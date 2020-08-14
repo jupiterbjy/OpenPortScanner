@@ -18,7 +18,7 @@ except ImportError:
 
 async def tcp_recv(reader: asyncio.StreamReader, delimiter: bytes, timeout=None) -> str:
     """
-    Receives string result.
+    Receives string result. Handle Incomplete error on your own.
     """
 
     try:

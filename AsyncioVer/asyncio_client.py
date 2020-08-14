@@ -24,15 +24,15 @@ READ_UNTIL = config.READ_UNTIL.encode()
 # Wait for connection, or a proper IP:PORT input.
 async def get_connection():
     while True:
-        # host, port = input("Host [IP:Port] >> ").split(":")
-        host, port = '127.0.0.1:39'.split(":")  # debug
+        host, port = input("Host [IP:Port] >> ").split(":")
+        # host, port = '127.0.0.1:39'.split(":")  # debug
         port = int(port)
         try:
             reader, writer = await asyncio.open_connection(host, port)
         except TypeError:
-            print(f"[C][Warn] Cannot connect to - {host}:{port}")
+            print(f"[C][WARN] Cannot connect to - {host}:{port}")
         else:
-            print("[C][Info] Connected")
+            print("[C][INFO] Connected")
             return host, reader, writer
 
 
@@ -48,7 +48,7 @@ async def worker(id_: int, host, send, recv, event):
         while not event.is_set():
 
             # announce server that the worker is ready.
-            print(f"[CS{id_:2}][Info] Worker {id_:2} READY.")
+            print(f"[CS{id_:2}][INFO] Worker {id_:2} READY.")
             await send.put(id_)
 
             try:
@@ -59,26 +59,37 @@ async def worker(id_: int, host, send, recv, event):
                 continue
 
             except ValueError:
-                print(SharedData.cyan(f"[CS{id_:2}][Info] Stop Signal received!"))
+                print(SharedData.cyan(f"[CS{id_:2}][INFO] Stop Signal received!"))
                 break
 
-            print(f"[CS{id_:2}][Info] Connecting Port {p}.")
+            print(f"[CS{id_:2}][INFO] Connecting Port {p}.")
             try:
                 child_recv, child_send = await asyncio.wait_for(asyncio.open_connection(host, p), TIMEOUT_FACTOR)
-                print(await tcp_recv(child_recv, b'%', timeout=TIMEOUT_FACTOR))
 
             except asyncio.TimeoutError:
-                print(SharedData.purple(f"[CS{id_:2}][Info] Port {p} timeout."))
+                print(SharedData.purple(f"[CS{id_:2}][INFO] Port {p} timeout."))
 
             except OSError:
-                print(SharedData.red(f"[CS{id_:2}][Warn] Port {p} connection refused."))
+                print(SharedData.red(f"[CS{id_:2}][WARN] Port {p} connection refused."))
 
             else:
-                print(f"[CS{id_:2}][Info] Port {p} open.")
-                print(SharedData.green(f"[CS{id_:2}][Info] Port {p} is available."))
+                try:
+                    print(await tcp_recv(child_recv, b'%', timeout=TIMEOUT_FACTOR))
 
-                child_send.close()
-                await child_send.wait_closed()
+                except asyncio.TimeoutError:
+                    print(SharedData.purple(f"[CS{id_:2}][INFO] Port {p} timeout."))
+
+                except asyncio.IncompleteReadError:
+                    print(SharedData.red(f"[CS{id_:2}][WARN] Port {p} disconnected!"))
+                    child_send.close()
+                    await child_send.wait_closed()
+
+                else:
+                    print(f"[CS{id_:2}][INFO] Port {p} open.")
+                    print(SharedData.green(f"[CS{id_:2}][INFO] Port {p} is available."))
+                finally:
+                    child_send.close()
+                    await child_send.wait_closed()
 
     except Exception:
         # trigger event to stop all threads.
