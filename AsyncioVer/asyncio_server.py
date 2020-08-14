@@ -26,10 +26,6 @@ config = SharedData.load_config_new()
 TIMEOUT_FACTOR = config.SOCK_TIMEOUT
 READ_UNTIL = config.READ_UNTIL.encode()
 
-# Results
-USED_PORTS = []
-SHUT_PORTS = []
-
 
 # TODO: convert to queue
 
@@ -90,10 +86,12 @@ def generate_queue():
     return q
 
 
-async def worker(id_, q, send, recv, event: asyncio.Event):
+async def worker(id_, q, send, recv, used, unreachable, event: asyncio.Event):
     q: asyncio.Queue
     send: asyncio.Queue
     recv: asyncio.Queue
+    used: asyncio.Queue
+    unreachable: asyncio.Queue
 
     async def worker_handler(
         reader: asyncio.StreamReader, writer: asyncio.StreamWriter, port: int,
@@ -137,11 +135,11 @@ async def worker(id_, q, send, recv, event: asyncio.Event):
 
             except AssertionError:
                 print(SharedData.red(f"[SS{id_:2}][INFO] Port {p} assertion failed!"))
-                SHUT_PORTS.append(p)
+                await unreachable.put(p)
 
             except OSError:
                 print(SharedData.red(f"[SS{id_:2}][Warn] Port {p} in use."))
-                USED_PORTS.append(p)
+                await used.put(p)
 
             else:
                 try:
@@ -150,6 +148,7 @@ async def worker(id_, q, send, recv, event: asyncio.Event):
 
                 except asyncio.TimeoutError:
                     print(SharedData.red(f"[SS{id_:2}][Warn] Port {p} timeout."))
+                    await unreachable.put(p)
                 finally:
                     child_sock.close()
                     await child_sock.wait_closed()
@@ -177,6 +176,8 @@ async def run_workers(
         works: asyncio.Queue,
         send: asyncio.Queue,
         recv: asyncio.Queue,
+        in_use: asyncio.Queue,
+        unreachable: asyncio.Queue,
         e: asyncio.Event,
 ):
     """
@@ -184,7 +185,7 @@ async def run_workers(
     """
 
     workers = [
-        asyncio.create_task(worker(i, works, send, recv, e)) for i in range(workers_max)
+        asyncio.create_task(worker(i, works, send, recv, in_use, unreachable, e)) for i in range(workers_max)
     ]
 
     for t in workers:  # wait until workers are all complete
@@ -193,11 +194,22 @@ async def run_workers(
     print(SharedData.bold("[S][info] All workers stopped."))
 
 
+def async_q_to_list(q: asyncio.Queue) -> list:
+    out = []
+    try:
+        while True:
+            out.append(q.get_nowait())
+    except asyncio.queues.QueueEmpty:
+        return out
+
+
 async def main():
     start_event = asyncio.Event()
     fail_event = asyncio.Event()
     send_q = asyncio.Queue()
     recv_q = asyncio.Queue()
+    in_use = asyncio.Queue()
+    unreachable = asyncio.Queue()
     work = generate_queue()
 
     async def handler(recv, send):
@@ -207,7 +219,7 @@ async def main():
 
     await server_co.start_serving()
     await start_event.wait()
-    await run_workers(config.WORKERS, work, send_q, recv_q, fail_event)
+    await run_workers(config.WORKERS, work, send_q, recv_q, in_use, unreachable, fail_event)
 
     if fail_event.is_set():
         print("task failed! waiting for server task to complete.")
@@ -218,8 +230,8 @@ async def main():
         return
 
     print("\n[Results]")
-    print(f"Used Ports  : {USED_PORTS}")
-    print(f"Closed Ports: {SHUT_PORTS}")
+    print(f"Used Ports  : {async_q_to_list(in_use)}")
+    print(f"Closed Ports: {async_q_to_list(unreachable)}")
     print(f"Excluded    : {config.EXCLUDE}")
     print(f"\nAll other ports from 1~{config.PORT_MAX} is open.")
 
