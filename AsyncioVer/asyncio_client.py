@@ -1,6 +1,8 @@
 # from os import environ
 # environ['PYTHONASYNCIODEBUG'] = '1'
 
+# TODO: fetch config from server
+
 import asyncio
 from Shared import send_task, recv_task, tcp_recv
 
