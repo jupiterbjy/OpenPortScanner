@@ -130,8 +130,17 @@ async def worker(id_, q, send, recv, used, unreachable, event: asyncio.Event):
 
             print(f"[SS{id_:2}][INFO] Trying to serve port {p}.")
             try:
-                child_sock = await asyncio.wait_for(asyncio.start_server(
-                    lambda r, w: worker_handler(r, w, p, handle_ev), port=p), TIMEOUT_FACTOR)
+                # child_sock = await asyncio.wait_for(asyncio.start_server(
+                #     lambda r, w: worker_handler(r, w, p, handle_ev), port=p), TIMEOUT_FACTOR)
+
+                child_sock = await asyncio.start_server(
+                                    lambda r, w: worker_handler(r, w, p, handle_ev), port=p)
+
+            # except asyncio.TimeoutError:
+            #     # not sure why start_server gets timeout.
+            #     # maybe I need to control number of task so opening server don't hang.
+            #     print(SharedData.red(f"[SS{id_:2}][Warn] Port {p} timeout while opening."))
+            #     await unreachable.put(p)
 
             except AssertionError:
                 print(SharedData.red(f"[SS{id_:2}][INFO] Port {p} assertion failed!"))
@@ -221,23 +230,22 @@ async def main():
     await start_event.wait()
     await run_workers(config.WORKERS, work, send_q, recv_q, in_use, unreachable, fail_event)
 
-    if fail_event.is_set():
-        print("task failed! waiting for server task to complete.")
-        server_co.close()
-        await server_co.wait_closed()
+    # fail_event.set()
+    server_co.close()
+    await server_co.wait_closed()
+    print("all task completed.")
 
-        print("all task completed.")
-        return
+    last_port = config.PORT_MAX
+
+    if fail_event.is_set():
+        last_port = await work.get()
+        print(f"Task failed! Showing test result before failed port {last_port}.")
 
     print("\n[Results]")
     print(f"Used Ports  : {async_q_to_list(in_use)}")
     print(f"Closed Ports: {async_q_to_list(unreachable)}")
     print(f"Excluded    : {config.EXCLUDE}")
-    print(f"\nAll other ports from 1~{config.PORT_MAX} is open.")
-
-    fail_event.set()
-    server_co.close()
-    await server_co.wait_closed()
+    print(f"\nAll other ports from 1~{last_port} is open.")
 
 
 if __name__ == "__main__":

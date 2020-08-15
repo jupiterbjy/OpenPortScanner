@@ -19,7 +19,6 @@ except ImportError:
 # setup
 config = SharedData.load_config_new()
 TIMEOUT_FACTOR = config.SOCK_TIMEOUT
-# TIMEOUT_FACTOR = 10000
 READ_UNTIL = config.READ_UNTIL.encode()
 
 
