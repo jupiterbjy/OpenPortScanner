@@ -8,18 +8,14 @@ from Shared import send_task, recv_task, tcp_recv
 
 try:
     import SharedData
-    print('DEBUGGING')
+
+    print("DEBUGGING")
 except ImportError:
     from os import getcwd
     from sys import path
-    path.append(getcwd() + '/..')
+
+    path.append(getcwd() + "/..")
     import SharedData
-
-
-# setup
-config = SharedData.load_config_new()
-TIMEOUT_FACTOR = config.SOCK_TIMEOUT
-READ_UNTIL = config.READ_UNTIL.encode()
 
 
 # Wait for connection, or a proper IP:PORT input.
@@ -37,7 +33,7 @@ async def get_connection():
             return host, reader, writer
 
 
-async def worker(id_: int, host, send, recv, event):
+async def worker(id_: int, host, send, recv, event, timeout=None):
     q: asyncio.Queue
     send: asyncio.Queue
     recv: asyncio.Queue
@@ -53,10 +49,14 @@ async def worker(id_: int, host, send, recv, event):
             await send.put(id_)
 
             try:
-                p = int(await asyncio.wait_for(recv.get(), timeout=TIMEOUT_FACTOR))
+                p = int(await asyncio.wait_for(recv.get(), timeout=timeout))
                 recv.task_done()
             except asyncio.TimeoutError:
-                print(SharedData.red(f"[CS{id_:2}][WARN] Worker {id_:2} timeout fetching from Queue."))
+                print(
+                    SharedData.red(
+                        f"[CS{id_:2}][WARN] Worker {id_:2} timeout fetching from Queue."
+                    )
+                )
                 continue
 
             except ValueError:
@@ -65,7 +65,9 @@ async def worker(id_: int, host, send, recv, event):
 
             print(f"[CS{id_:2}][INFO] Connecting Port {p}.")
             try:
-                child_recv, child_send = await asyncio.wait_for(asyncio.open_connection(host, p), TIMEOUT_FACTOR)
+                child_recv, child_send = await asyncio.wait_for(
+                    asyncio.open_connection(host, p), timeout
+                )
 
             except asyncio.TimeoutError:
                 print(SharedData.purple(f"[CS{id_:2}][INFO] Port {p} timeout."))
@@ -75,7 +77,7 @@ async def worker(id_: int, host, send, recv, event):
 
             else:
                 try:
-                    print(await tcp_recv(child_recv, b'%', timeout=TIMEOUT_FACTOR))
+                    print(await tcp_recv(child_recv, b"%", timeout=timeout))
 
                 except asyncio.TimeoutError:
                     print(SharedData.purple(f"[CS{id_:2}][INFO] Port {p} timeout."))
@@ -105,17 +107,23 @@ async def main():
 
     host, s_recv, s_send = await get_connection()
 
+    config = SharedData.load_config_new(await tcp_recv(s_recv))
+
     event = asyncio.Event()
     send_q = asyncio.Queue()
     recv_q = asyncio.Queue()
 
     server_task = [
-        asyncio.create_task(send_task(s_send, send_q, event, READ_UNTIL, TIMEOUT_FACTOR)),
-        asyncio.create_task(recv_task(s_recv, recv_q, event, READ_UNTIL, TIMEOUT_FACTOR)),
+        asyncio.create_task(
+            send_task(s_send, send_q, event, config.READ_UNTIL, config.TIMEOUT)
+        ),
+        asyncio.create_task(
+            recv_task(s_recv, recv_q, event, config.READ_UNTIL, config.TIMEOUT)
+        ),
     ]
 
     workers = [
-        asyncio.create_task(worker(i, host, send_q, recv_q, event))
+        asyncio.create_task(worker(i, host, send_q, recv_q, event, config.TIMEOUT))
         for i in range(config.WORKERS)
     ]
 
@@ -146,7 +154,9 @@ async def main():
     s_send.close()
     await s_send.wait_closed()
 
+
 if __name__ == "__main__":
     import logging
-    logging.getLogger('asyncio').setLevel(logging.DEBUG)
+
+    logging.getLogger("asyncio").setLevel(logging.DEBUG)
     asyncio.run(main(), debug=True)

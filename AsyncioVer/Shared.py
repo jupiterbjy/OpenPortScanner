@@ -16,7 +16,7 @@ except ImportError:
     import SharedData
 
 
-async def tcp_recv(reader: asyncio.StreamReader, delimiter: bytes, timeout=None) -> str:
+async def tcp_recv(reader: asyncio.StreamReader, delimiter: bytes = b'\n', timeout=None) -> str:
     """
     Receives string result. Handle Incomplete error on your own.
     """
@@ -41,7 +41,7 @@ async def tcp_recv(reader: asyncio.StreamReader, delimiter: bytes, timeout=None)
     return data.decode()
 
 
-async def tcp_send(data, sender: asyncio.StreamWriter, delimiter: bytes, timeout=None):
+async def tcp_send(data, sender: asyncio.StreamWriter, delimiter: bytes = b'\n', timeout=None):
     """
     Get data, convert to str before encoding for simplicity.
     DO NOT PASS BYTES TO DATA! Or will end up receiving b'b'1231''.
@@ -66,11 +66,11 @@ async def tcp_send(data, sender: asyncio.StreamWriter, delimiter: bytes, timeout
 
 
 async def send_task(
-    s_sender: asyncio.StreamWriter,
-    q: asyncio.Queue,
-    e: asyncio.Event,
-    delimiter: bytes,
-    timeout=None,
+        s_sender: asyncio.StreamWriter,
+        q: asyncio.Queue,
+        e: asyncio.Event,
+        delimiter: bytes,
+        timeout=None,
 ):
     print("[SEND][DEBUG] Started")
 
@@ -98,11 +98,11 @@ async def send_task(
 
 
 async def recv_task(
-    s_receiver: asyncio.StreamReader,
-    q: asyncio.Queue,
-    e: asyncio.Event,
-    delimiter: bytes,
-    timeout=None,
+        s_receiver: asyncio.StreamReader,
+        q: asyncio.Queue,
+        e: asyncio.Event,
+        delimiter: bytes,
+        timeout=None,
 ):
     print("[RECV][DEBUG] Started")
 

@@ -26,8 +26,13 @@ def get_external_ip():
     return data.decode("utf-8")
 
 
-def load_config_new():
-    data = json.loads(pkgutil.get_data(__package__, 'config.json'))
+def load_config_new(json_file=None):
+    if json_file:
+        source = json_file
+    else:
+        source = pkgutil.get_data(__package__, 'config.json')
+
+    data = json.loads(source)
     data['END_MARK'] = data['END_MARK'].encode(data['ENCODING'])
 
     if data['INIT_PORT'] not in data['EXCLUDE']:
