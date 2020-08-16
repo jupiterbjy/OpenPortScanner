@@ -293,11 +293,19 @@ async def main():
         last_port = await work.get()
         print(f"Task failed! Showing test result before failed port {last_port}.")
 
+    used = set(async_q_to_list(in_use))
+    closed = set(async_q_to_list(unreachable))
+    excluded = set(config.EXCLUDE)
+    comb = used | closed | excluded
+
     print("\n[Results]")
-    print(f"Used Ports  : {async_q_to_list(in_use)}")
-    print(f"Closed Ports: {async_q_to_list(unreachable)}")
-    print(f"Excluded    : {config.EXCLUDE}")
+    print(f"Used Ports  : {used}")
+    print(f"Closed Ports: {closed}")
+    print(f"Excluded    : {excluded}")
+    print(f"Combined    : {comb}")
     print(f"\nAll other ports from 1~{last_port} is open.")
+
+    SharedData.dump_result(list(comb), 'results.json')
 
 
 if __name__ == "__main__":

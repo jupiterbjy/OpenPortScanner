@@ -53,6 +53,12 @@ def load_config_json(json_file=None):
     return data
 
 
+def dump_result(some_data, file_name: str):
+    module_root = path.dirname(__file__)
+    with open(module_root + file_name, 'wt') as f:
+        json.dump(some_data, f, indent=4)
+
+
 # closure. Yield function that convert int to bytes, stores given parameters.
 def rw_bytes(byte_size: int, byte_order: str, eof: bytes, encoding: str):
 
