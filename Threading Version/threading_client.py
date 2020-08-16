@@ -15,7 +15,7 @@ except ImportError:
 
 
 # setup
-config = SharedData.load_config_new()
+config = SharedData.load_json_config()
 c_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 TIMEOUT_FACTOR = config.SOCK_TIMEOUT
 read_b, write_b = SharedData.rw_bytes(

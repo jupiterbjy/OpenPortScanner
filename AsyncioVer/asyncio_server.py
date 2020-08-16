@@ -260,7 +260,7 @@ async def main():
     recv_q = asyncio.Queue()
 
     in_use = asyncio.Queue()
-    unreachable = asyncio.Queue()
+    failed = asyncio.Queue()
 
     # handler for primary connection.
     async def handler(recv, send):
@@ -287,7 +287,7 @@ async def main():
     await start_event.wait()
 
     # start workers
-    await run_workers(config, work, send_q, recv_q, in_use, unreachable, stop_event)
+    await run_workers(config, work, send_q, recv_q, in_use, failed, stop_event)
 
     stop_event.set()
     server_co.close()
@@ -299,30 +299,20 @@ async def main():
         last_port = await work.get()
         print(f"Task failed! Showing result before failed port {last_port}.")
 
-    used = set(async_q_to_list(in_use))
-    closed = set(async_q_to_list(unreachable))
-    excluded = set(config.EXCLUDE)
-    comb = used | closed | excluded
-    total = set(i for i in range(last_port + 1))
-    available = total ^ comb
-    # TODO: prevent excluded ports outside range of max_port xor-ed in to available.
+    # overriding
+    in_use = async_q_to_list(in_use)
+    failed = async_q_to_list(failed)
 
-    result_all = {
-        'Occupied': list(used),
-        'Unreachable': list(closed),
-        'Excluded': list(excluded),
-        'Combined': list(comb),
-        'Available': list(total ^ comb)
-    }
+    result = SharedData.get_port_result(in_use, failed, config.EXCLUDE, config.PORT_MAX)
 
-    print("\n[Results]")
-    print(f"Used Ports  : {used}")
-    print(f"Closed Ports: {closed}")
-    print(f"Excluded    : {excluded}")
-    print(f"Combined    : {comb}")
+    print("\n[Count Results]")
+    print(f"Used Ports  : {result['Occupied']}")
+    print(f"Closed Ports: {result['Unreachable']}")
+    print(f"Excluded    : {result['Excluded']}")
+    print(f"Combined    : {result}")
     print(f"\nAll other ports from 1~{last_port} is open.")
 
-    SharedData.dump_result(list(available), 'port_available')
+    SharedData.dump_result(result, 'tcp_scan_result')
 
 
 if __name__ == "__main__":

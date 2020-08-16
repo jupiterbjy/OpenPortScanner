@@ -1,12 +1,13 @@
-from os import chdir, path, listdir
+from os import chdir, path
 from sys import argv
 from urllib import request
 from types import SimpleNamespace
-from datetime import datetime
 import json
 import pkgutil
 
 from .ColorSupport import *
+from .FileSaveSupport import save_rename_conflicting
+from .ResultManipulation import get_port_result
 
 
 loc = path.dirname(path.abspath(__file__))
@@ -49,31 +50,6 @@ def dump_result(some_data, file_name: str):
     extension = '.json'
     module_root = path.dirname(__file__) + '/'
     save_rename_conflicting(json.dumps(some_data), module_root, file_name, extension)
-
-
-def save_rename_conflicting(data: str, directory: str, file_name: str, extension=''):
-    # only for text mode
-
-    # make sure dir end with slash, and normalize it.
-    if not directory.endswith(('/', '\\')):
-        directory = path.abspath(directory + '/')
-
-    new_file_name = file_name + '_0'
-
-    while True:
-        try:
-            with open(directory + new_file_name + extension, 'xt') as f:
-                f.write(data)
-                print(f"File saved at {directory + new_file_name + extension}")
-        except FileExistsError:
-            # file exists
-
-            similar_files = [i for i in listdir(directory) if i.startswith(file_name)]
-            exists = [i.split('_')[-1].split('.')[0] for i in similar_files]
-
-            new_file_name = file_name + '_' + str(max(map(int, exists)) + 1)
-        else:
-            break
 
 
 # closure. Yield function that convert int to bytes, stores given parameters.
