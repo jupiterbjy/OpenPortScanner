@@ -1,7 +1,6 @@
 from typing import Callable
 from Shared import send_task, recv_task, tcp_send
 import asyncio
-import json
 
 # TODO: clean this json mess
 
@@ -129,13 +128,22 @@ async def worker(
                 print(SharedData.red(f"[SS{id_:2}][Warn] Timeout."))
                 continue
 
-            print(f"[SS{id_:2}][INFO] Worker {worker_id} requests task.")
+            print(f"[SS{id_:2}][INFO] Worker {worker_id} available.")
 
             # get next work.
             print(f"[SS{id_:2}][INFO] Getting new port.")
 
-            p: int = await task_q.get()
-            task_q.task_done()
+            # if timeout getting port, either task is empty or just coroutine delayed.
+            try:
+                p: int = await asyncio.wait_for(task_q.get(), timeout)
+                task_q.task_done()
+            except asyncio.TimeoutError:
+                if task_q.empty():
+                    break
+                else:
+                    await recv.put(worker_id)
+                    continue
+                    # put back in and run again.
 
             # check if port is in blacklist.
             if p in exclude:
@@ -240,7 +248,8 @@ def async_q_to_list(q: asyncio.Queue) -> list:
 
 async def main():
 
-    config = SharedData.load_config_new()
+    config = SharedData.load_json_config()
+
     work = generate_queue(config.PORT_MAX)
     delimiter = config.READ_UNTIL.encode(config.ENCODING)
 
@@ -257,7 +266,7 @@ async def main():
     async def handler(recv, send):
         # send config to client.
         print("Sending config to client.")
-        await tcp_send(json.dumps(SharedData.load_config_json()), send)
+        await tcp_send(SharedData.load_config_raw(), send)
 
         await main_handler(
             recv,
@@ -270,33 +279,41 @@ async def main():
             config.TIMEOUT,
         )
 
+    # start server
     server_co = await get_connection(handler)
     await server_co.start_serving()
+
+    # wait until connection is established, and handler started.
     await start_event.wait()
 
-    # TODO: clean this mess
-
     # start workers
-    await run_workers(
-        config, work, send_q, recv_q, in_use, unreachable, stop_event,
-    )
+    await run_workers(config, work, send_q, recv_q, in_use, unreachable, stop_event)
 
     stop_event.set()
     server_co.close()
     await server_co.wait_closed()
 
-    print(SharedData.bold("[S][INFO] All workers stopped."))
-
     last_port = config.PORT_MAX
 
     if not work.empty():
         last_port = await work.get()
-        print(f"Task failed! Showing test result before failed port {last_port}.")
+        print(f"Task failed! Showing result before failed port {last_port}.")
 
     used = set(async_q_to_list(in_use))
     closed = set(async_q_to_list(unreachable))
     excluded = set(config.EXCLUDE)
     comb = used | closed | excluded
+    total = set(i for i in range(last_port + 1))
+    available = total ^ comb
+    # TODO: prevent excluded ports outside range of max_port xor-ed in to available.
+
+    result_all = {
+        'Occupied': list(used),
+        'Unreachable': list(closed),
+        'Excluded': list(excluded),
+        'Combined': list(comb),
+        'Available': list(total ^ comb)
+    }
 
     print("\n[Results]")
     print(f"Used Ports  : {used}")
@@ -305,7 +322,7 @@ async def main():
     print(f"Combined    : {comb}")
     print(f"\nAll other ports from 1~{last_port} is open.")
 
-    SharedData.dump_result(list(comb), 'results.json')
+    SharedData.dump_result(list(available), 'port_available')
 
 
 if __name__ == "__main__":
