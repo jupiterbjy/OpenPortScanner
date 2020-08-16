@@ -22,7 +22,7 @@ except ImportError:
 async def get_connection():
     while True:
         host, port = input("Host [IP:Port] >> ").split(":")
-        # host, port = '127.0.0.1:39'.split(":")  # debug
+        # host, port = '127.0.0.1:80'.split(":")  # debug
         port = int(port)
         try:
             reader, writer = await asyncio.open_connection(host, port)
@@ -84,8 +84,6 @@ async def worker(id_: int, host, send, recv, event, delimiter, timeout=None):
 
                 except asyncio.IncompleteReadError:
                     print(SharedData.red(f"[CS{id_:2}][WARN] Port {p} disconnected!"))
-                    child_send.close()
-                    await child_send.wait_closed()
 
                 else:
                     print(f"[CS{id_:2}][INFO] Port {p} open.")

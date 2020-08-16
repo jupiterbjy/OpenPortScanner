@@ -10,7 +10,7 @@
   "SOCK_TIMEOUT": 1,
   "READ_UNTIL": "%",
   "END_MARK": "Temanyan! —ฅ/ᐠ. ꞈ.ᐟ\\ฅ —",
-  "WORKERS": 4,
+  "WORKERS": 1,
   "ENCODING": "utf-8",
   "BYTE_ORDER": "big",
   "BYTE_SIZE": 6
