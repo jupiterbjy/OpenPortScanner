@@ -82,7 +82,7 @@ async def send_task(
         delimiter: bytes,
         timeout=None,
 ):
-    print("[SEND][DEBUG] Started")
+    print("[SEND][INFO] Started")
 
     try:
         while True:

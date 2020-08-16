@@ -51,7 +51,8 @@ async def worker(id_: int, host, send, recv, event, delimiter, timeout=None):
             await send.put(id_)
 
             try:
-                p = int(await asyncio.wait_for(recv.get(), timeout=timeout))
+                p = await asyncio.wait_for(recv.get(), timeout=timeout)
+                p = int(p)
                 recv.task_done()
             except asyncio.TimeoutError:
                 print(
@@ -126,10 +127,10 @@ async def main():
         ),
     )
 
-    workers = (
+    workers = [
         asyncio.create_task(worker(i, host, send_q, recv_q, event, delimiter, config.TIMEOUT))
         for i in range(config.WORKERS)
-    )
+    ]
 
     # waiting for workers to complete.
     for t in workers:
