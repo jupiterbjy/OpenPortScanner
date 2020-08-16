@@ -1,6 +1,9 @@
 from typing import Callable
 from Shared import send_task, recv_task, tcp_send
 import asyncio
+import json
+
+# TODO: clean this json mess
 
 try:
     import SharedData
@@ -254,7 +257,7 @@ async def main():
     async def handler(recv, send):
         # send config to client.
         print("Sending config to client.")
-        await tcp_send(SharedData.load_config_json(), send)
+        await tcp_send(json.dumps(SharedData.load_config_json()), send)
 
         await main_handler(
             recv,
