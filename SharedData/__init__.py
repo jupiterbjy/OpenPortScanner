@@ -1,10 +1,12 @@
-from os import chdir, path
+from os import chdir, path, listdir
 from sys import argv
 from urllib import request
 from types import SimpleNamespace
-from .ColorSupport import *
+from datetime import datetime
 import json
 import pkgutil
+
+from .ColorSupport import *
 
 
 loc = path.dirname(path.abspath(__file__))
@@ -26,37 +28,52 @@ def get_external_ip():
     return data.decode("utf-8")
 
 
-def load_config_new(json_file=None):
-    data = load_config_json(json_file)
-
-    return SimpleNamespace(**prepare_config(data))
-
-
-def prepare_config(data: dict) -> dict:
-    # get json dict
+def load_json_config():
+    data = json.loads(load_config_raw())
 
     data['END_MARK'] = data['END_MARK'].encode(data['ENCODING'])
 
     if data['INIT_PORT'] not in data['EXCLUDE']:
         data['EXCLUDE'].append(data['INIT_PORT'])
 
-    return data
+    return SimpleNamespace(**data)
 
 
-def load_config_json(json_file=None):
-    if json_file:
-        source = json_file
-    else:
-        source = pkgutil.get_data(__package__, 'config.json')
-    data = json.loads(source)
-
-    return data
+def load_config_raw():
+    # explicitly converting into dict and back for compatibility i.e. CRLF
+    data = json.loads(pkgutil.get_data(__package__, 'config.json'))
+    return json.dumps(data)
 
 
 def dump_result(some_data, file_name: str):
-    module_root = path.dirname(__file__)
-    with open(module_root + '/' + file_name, 'wt') as f:
-        json.dump(some_data, f)
+    extension = '.json'
+    module_root = path.dirname(__file__) + '/'
+    save_rename_conflicting(json.dumps(some_data), module_root, file_name, extension)
+
+
+def save_rename_conflicting(data: str, directory: str, file_name: str, extension=''):
+    # only for text mode
+
+    # make sure dir end with slash, and normalize it.
+    if not directory.endswith(('/', '\\')):
+        directory = path.abspath(directory + '/')
+
+    new_file_name = file_name + '_0'
+
+    while True:
+        try:
+            with open(directory + new_file_name + extension, 'xt') as f:
+                f.write(data)
+                print(f"File saved at {directory + new_file_name + extension}")
+        except FileExistsError:
+            # file exists
+
+            similar_files = [i for i in listdir(directory) if i.startswith(file_name)]
+            exists = [i.split('_')[-1].split('.')[0] for i in similar_files]
+
+            new_file_name = file_name + '_' + str(max(map(int, exists)) + 1)
+        else:
+            break
 
 
 # closure. Yield function that convert int to bytes, stores given parameters.

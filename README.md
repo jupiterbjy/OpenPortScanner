@@ -7,15 +7,13 @@ Don't ddos this.
 Image Shows as if threaded version is lightening-fast, but actually runs same speed with consequent version.  
 Python's module 'Socket' blocks when recv is called, rendering all workers other than one useless.  
 
-Asyncio version runs a bit faster, but not sure if socket connection is actually running asynchronously or not.  
+Asyncio version runs way faster, but not sure if socket connection is actually running asynchronously or not.  
 Anyhow, this personal repo was worth trying as now I learned how to play with threading and asyncio.
 
 Trying to create own open-port tester, for use in so-called "Cyber-media, information Room" in ROKA.
 
 There will be 'Examples' Folders from now on to show things I'm struggling with - in case progress is way too slow.
 
-Other repositories without it would have those in PyCharm Scratch folder, not in git.
-
 ---
 
-Currently Threading, Consecutive versions of TCP port checkers are working. Example above is threaded version.
+Currently Threading, Consecutive, asyncio versions of TCP port checkers are working. Example above is threaded version.
