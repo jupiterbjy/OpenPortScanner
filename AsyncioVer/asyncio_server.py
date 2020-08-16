@@ -1,5 +1,5 @@
 from typing import Callable
-from Shared import send_task, recv_task, tcp_recv, tcp_send
+from Shared import send_task, recv_task, tcp_send
 import asyncio
 
 try:
@@ -18,18 +18,6 @@ except ImportError:
 # Get-Process -Id (Get-NetTCPConnection -LocalPort 80).OwningProcess
 
 
-# load config
-IP = SharedData.get_external_ip()
-config = SharedData.load_config_new()
-
-# fetch config data for a tiny bit of better access speed.
-TIMEOUT_FACTOR = config.SOCK_TIMEOUT
-READ_UNTIL = config.READ_UNTIL.encode()
-
-
-# TODO: convert to queue
-
-
 # Main server handler start
 async def main_handler(
     recv: asyncio.StreamReader,
@@ -37,7 +25,9 @@ async def main_handler(
     send_q: asyncio.Queue,
     recv_q: asyncio.Queue,
     fail_ev: asyncio.Event,
-    start_ev: asyncio.Event
+    start_ev: asyncio.Event,
+    delimiter: bytes = b"\n",
+    timeout=None,
 ):
     """
     Main handler of server.
@@ -48,57 +38,76 @@ async def main_handler(
     start_ev.set()  # start loading workers.
 
     server_tasks = (
-        send_task(send, send_q, fail_ev, READ_UNTIL, TIMEOUT_FACTOR),
-        recv_task(recv, recv_q, fail_ev, READ_UNTIL, TIMEOUT_FACTOR),
+        send_task(send, send_q, fail_ev, delimiter, timeout),
+        recv_task(recv, recv_q, fail_ev, delimiter, timeout),
     )
 
     gather_task = asyncio.gather(*server_tasks)
     # cancellation on asyncio.gather cause all coroutines in seq to cancel.
     # gather_task.cancel()
+    try:
+        await gather_task
+    except ConnectionResetError:
+        print('Connection reset!')
 
-    await gather_task
     send.close()
     await send.wait_closed()
 
 
 async def get_connection(handler: Callable):
-    try:
-        server_co = await asyncio.start_server(handler, port=config.INIT_PORT)
-    except (TypeError, OverflowError):
-        print(f"[S][CRIT] Port invalid.")
-        raise
+    ip = SharedData.get_external_ip()
 
-    except OSError:
-        print(SharedData.red(f"[S][Crit] Cannot open server at {config.INIT_PORT}."))
-        raise
+    while True:
+        try:
+            port = int(input("Enter primary server port >> "))
+            if port > 65536:
+                raise ValueError
 
-    else:
-        print(f"[S][INFO] Connect client to: {IP}:{config.INIT_PORT}")
-        return server_co
+        except ValueError:
+            print("Wrong port value!")
+            continue
+
+        try:
+            server_co = await asyncio.start_server(handler, port=port)
+
+        except OSError:
+            print(SharedData.red(f"[S][CRIT] Cannot open server at port."))
+            raise
+
+        else:
+            print(f"[S][INFO] Connect client to: {ip}:{port}")
+            return server_co
 
 
-def generate_queue():
-    print(f"Generating Queue from 1~{config.PORT_MAX}.")
+def generate_queue(max_port: int):
+    print(f"Generating Queue from 1~{max_port}.")
     q = asyncio.Queue()
-    for i in range(1, config.PORT_MAX + 1):
+    for i in range(1, max_port + 1):
         q.put_nowait(i)
 
     return q
 
 
-async def worker(id_, q, send, recv, used, unreachable, event: asyncio.Event):
-    q: asyncio.Queue
-    send: asyncio.Queue
-    recv: asyncio.Queue
-    used: asyncio.Queue
-    unreachable: asyncio.Queue
-
+async def worker(
+    id_,
+    task_q: asyncio.Queue,
+    send: asyncio.Queue,
+    recv: asyncio.Queue,
+    exclude: set,
+    used: asyncio.Queue,
+    unreachable: asyncio.Queue,
+    event: asyncio.Event,
+    delimiter: bytes,
+    timeout=None
+):
     async def worker_handler(
-        reader: asyncio.StreamReader, writer: asyncio.StreamWriter, port: int,
-            handle_finished: asyncio.Event
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        port: int,
+        handle_finished: asyncio.Event,
     ):
         print(SharedData.green(f"[SS{id_:2}][INFO] --- IN HANDLER ---"))
-        await tcp_send(p, writer, b'%', timeout=TIMEOUT_FACTOR)
+        await tcp_send(p, writer, delimiter, timeout=timeout)
         print(SharedData.green(f"[SS{id_:2}][INFO] Port {port} is open."))
 
         writer.close()
@@ -106,22 +115,28 @@ async def worker(id_, q, send, recv, used, unreachable, event: asyncio.Event):
         handle_finished.set()
 
     try:
-        while not q.empty() and not event.is_set():
+        while not task_q.empty() and not event.is_set():
+
+            # receive worker announcement.
+            try:
+                worker_id = await asyncio.wait_for(recv.get(), timeout)
+                recv.task_done()
+            except asyncio.TimeoutError:
+                print(SharedData.red(f"[SS{id_:2}][Warn] Timeout."))
+                continue
+
+            print(f"[SS{id_:2}][INFO] Worker {worker_id} requests task.")
 
             # get next work.
             print(f"[SS{id_:2}][INFO] Getting new port.")
-            p: int = await q.get()
-            q.task_done()
+
+            p: int = await task_q.get()
+            task_q.task_done()
 
             # check if port is in blacklist.
-            if p in config.EXCLUDE:
+            if p in exclude:
                 print(SharedData.cyan(f"[SS{id_:2}][INFO] Skipping Port {p}."))
                 continue
-
-            # receive worker announcement.
-            worker_id = await recv.get()
-            recv.task_done()
-            print(f"[SS{id_:2}][INFO] Worker {worker_id} requests task.")
 
             print(f"[SS{id_:2}][INFO] Sending port {p} to client.")
             await send.put(p)
@@ -134,7 +149,8 @@ async def worker(id_, q, send, recv, used, unreachable, event: asyncio.Event):
                 #     lambda r, w: worker_handler(r, w, p, handle_ev), port=p), TIMEOUT_FACTOR)
 
                 child_sock = await asyncio.start_server(
-                                    lambda r, w: worker_handler(r, w, p, handle_ev), port=p)
+                    lambda r, w: worker_handler(r, w, p, handle_ev), port=p
+                )
 
             # except asyncio.TimeoutError:
             #     # not sure why start_server gets timeout.
@@ -153,7 +169,7 @@ async def worker(id_, q, send, recv, used, unreachable, event: asyncio.Event):
             else:
                 try:
                     await child_sock.start_serving()
-                    await asyncio.wait_for(handle_ev.wait(), TIMEOUT_FACTOR)
+                    await asyncio.wait_for(handle_ev.wait(), timeout)
 
                 except asyncio.TimeoutError:
                     print(SharedData.red(f"[SS{id_:2}][Warn] Port {p} timeout."))
@@ -166,7 +182,7 @@ async def worker(id_, q, send, recv, used, unreachable, event: asyncio.Event):
         # first worker catching this signal will go offline.
 
         print(SharedData.cyan(f"[SS{id_:2}][INFO] Done. Sending stop signal."))
-        await send.put(READ_UNTIL)  # causing int type-error on client side workers.
+        await send.put("DONE")  # causing int type-error on client side workers.
 
     except Exception:
         # trigger event to stop all threads.
@@ -181,20 +197,26 @@ async def worker(id_, q, send, recv, used, unreachable, event: asyncio.Event):
 
 
 async def run_workers(
-        workers_max: int,
-        works: asyncio.Queue,
-        send: asyncio.Queue,
-        recv: asyncio.Queue,
-        in_use: asyncio.Queue,
-        unreachable: asyncio.Queue,
-        e: asyncio.Event,
+    config,
+    works: asyncio.Queue,
+    send: asyncio.Queue,
+    recv: asyncio.Queue,
+    in_use: asyncio.Queue,
+    unreachable: asyncio.Queue,
+    e: asyncio.Event,
 ):
     """
     Handle worker tasks.
     """
 
+    delimiter = config.READ_UNTIL.encode(config.ENCODING)
+    excl = set(config.EXCLUDE)
+
     workers = [
-        asyncio.create_task(worker(i, works, send, recv, in_use, unreachable, e)) for i in range(workers_max)
+        asyncio.create_task(
+            worker(i, works, send, recv, excl, in_use, unreachable, e, delimiter, config.TIMEOUT)
+        )
+        for i in range(config.WORKERS)
     ]
 
     for t in workers:  # wait until workers are all complete
@@ -213,31 +235,57 @@ def async_q_to_list(q: asyncio.Queue) -> list:
 
 
 async def main():
+
+    config = SharedData.load_config_new()
+    work = generate_queue(config.PORT_MAX)
+    delimiter = config.READ_UNTIL.encode(config.ENCODING)
+
     start_event = asyncio.Event()
-    fail_event = asyncio.Event()
+    stop_event = asyncio.Event()
+
     send_q = asyncio.Queue()
     recv_q = asyncio.Queue()
+
     in_use = asyncio.Queue()
     unreachable = asyncio.Queue()
-    work = generate_queue()
 
+    # handler for primary connection.
     async def handler(recv, send):
-        await main_handler(recv, send, send_q, recv_q, fail_event, start_event)
+        # send config to client.
+        print("Sending config to client.")
+        await tcp_send(SharedData.load_config_json(), send)
+
+        await main_handler(
+            recv,
+            send,
+            send_q,
+            recv_q,
+            stop_event,
+            start_event,
+            delimiter,
+            config.TIMEOUT,
+        )
 
     server_co = await get_connection(handler)
-
     await server_co.start_serving()
     await start_event.wait()
-    await run_workers(config.WORKERS, work, send_q, recv_q, in_use, unreachable, fail_event)
 
-    # fail_event.set()
+    # TODO: clean this mess
+
+    # start workers
+    await run_workers(
+        config, work, send_q, recv_q, in_use, unreachable, stop_event,
+    )
+
+    stop_event.set()
     server_co.close()
     await server_co.wait_closed()
-    print("all task completed.")
+
+    print(SharedData.bold("[S][INFO] All workers stopped."))
 
     last_port = config.PORT_MAX
 
-    if fail_event.is_set():
+    if not work.empty():
         last_port = await work.get()
         print(f"Task failed! Showing test result before failed port {last_port}.")
 

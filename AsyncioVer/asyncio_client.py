@@ -33,7 +33,7 @@ async def get_connection():
             return host, reader, writer
 
 
-async def worker(id_: int, host, send, recv, event, timeout=None):
+async def worker(id_: int, host, send, recv, event, delimiter, timeout=None):
     q: asyncio.Queue
     send: asyncio.Queue
     recv: asyncio.Queue
@@ -77,7 +77,7 @@ async def worker(id_: int, host, send, recv, event, timeout=None):
 
             else:
                 try:
-                    print(await tcp_recv(child_recv, b"%", timeout=timeout))
+                    print(await tcp_recv(child_recv, delimiter, timeout=timeout))
 
                 except asyncio.TimeoutError:
                     print(SharedData.purple(f"[CS{id_:2}][INFO] Port {p} timeout."))
@@ -108,47 +108,44 @@ async def main():
     host, s_recv, s_send = await get_connection()
 
     config = SharedData.load_config_new(await tcp_recv(s_recv))
+    print(f'Config received from {host}.')
 
     event = asyncio.Event()
     send_q = asyncio.Queue()
     recv_q = asyncio.Queue()
+    delimiter = config.READ_UNTIL.encode(config.ENCODING)
 
-    server_task = [
+    server_task = (
         asyncio.create_task(
-            send_task(s_send, send_q, event, config.READ_UNTIL, config.TIMEOUT)
+            send_task(s_send, send_q, event, delimiter, config.TIMEOUT)
         ),
         asyncio.create_task(
-            recv_task(s_recv, recv_q, event, config.READ_UNTIL, config.TIMEOUT)
+            recv_task(s_recv, recv_q, event, delimiter, config.TIMEOUT)
         ),
-    ]
+    )
 
-    workers = [
-        asyncio.create_task(worker(i, host, send_q, recv_q, event, config.TIMEOUT))
+    workers = (
+        asyncio.create_task(worker(i, host, send_q, recv_q, event, delimiter, config.TIMEOUT))
         for i in range(config.WORKERS)
-    ]
+    )
 
     # waiting for workers to complete.
     for t in workers:
         await t
 
-    print(SharedData.bold("[C][info] All workers stopped."))
+    print(SharedData.bold("[C][INFO] All workers stopped."))
 
     if event.is_set():  # if set, then worker crashed and set the alarm!
-        # TODO: put some crash message
-
         print("task failed! waiting for server task to complete.")
+    else:
+        event.set()
 
-        for t in server_task:
-            await t
-
-        print("all task completed.")
-        return
-
-    # waiting for SEND / RECV to stop
-    # due to timeout feature, if event is set - they'll timeout and finish.
-    event.set()
     for t in server_task:
-        await t
+        try:
+            await t
+        except ConnectionResetError:
+            print("Connection reset!")
+            continue
 
     # wait until server is closed - preventing RuntimeError.
     s_send.close()

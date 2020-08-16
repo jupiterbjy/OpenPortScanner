@@ -27,18 +27,23 @@ def get_external_ip():
 
 
 def load_config_new(json_file=None):
+    data = load_config_json(json_file)
+
+    return SimpleNamespace(**data)
+
+
+def load_config_json(json_file=None):
     if json_file:
         source = json_file
     else:
         source = pkgutil.get_data(__package__, 'config.json')
-
-    data = json.loads(source)
+    data = json.loads(pkgutil.get_data(__package__, 'config.json'))
     data['END_MARK'] = data['END_MARK'].encode(data['ENCODING'])
 
     if data['INIT_PORT'] not in data['EXCLUDE']:
         data['EXCLUDE'].append(data['INIT_PORT'])
 
-    return SimpleNamespace(**data)
+    return data
 
 
 # closure. Yield function that convert int to bytes, stores given parameters.

@@ -26,13 +26,22 @@ async def tcp_recv(reader: asyncio.StreamReader, delimiter: bytes = b'\n', timeo
             reader.readuntil(delimiter), timeout=timeout
         )
     except TypeError:
-        msg = "function 'tcp_recv' expects"
+        msg = "tcp_recv: expects"
         if not isinstance(delimiter, bytes):
             print(msg, f"<bytes> for delimiter, got {type(delimiter)} instead.")
 
         if not isinstance(timeout, Number) and timeout is not None:
             print(msg, f"<numbers> for delimiter, got {type(timeout)} instead.")
 
+        raise
+
+    # why this is ignored??? why I am getting ConnReset directly??
+    except ConnectionResetError:
+        print("tcp_recv: Disconnected from Server.")
+        raise
+
+    except asyncio.IncompleteReadError:
+        print("tcp_recv: Incomplete read error.")
         raise
 
     data = await asyncio.wait_for(
@@ -45,6 +54,7 @@ async def tcp_send(data, sender: asyncio.StreamWriter, delimiter: bytes = b'\n',
     """
     Get data, convert to str before encoding for simplicity.
     DO NOT PASS BYTES TO DATA! Or will end up receiving b'b'1231''.
+    Didn't put type checking for optimization factor.
     """
 
     data_byte = str(data).encode()
@@ -53,7 +63,7 @@ async def tcp_send(data, sender: asyncio.StreamWriter, delimiter: bytes = b'\n',
         sender.write(str(data_length).encode() + delimiter + data_byte)
 
     except TypeError:
-        msg = "function 'tcp_recv' expects"
+        msg = "tcp_send: expects"
         if not isinstance(delimiter, bytes):
             print(msg, f"<bytes> for delimiter, got {type(delimiter)} instead.")
 
@@ -104,14 +114,14 @@ async def recv_task(
         delimiter: bytes,
         timeout=None,
 ):
-    print("[RECV][DEBUG] Started")
+    print("[RECV][INFO] Started")
 
     try:
         while True:
             try:
                 data = await tcp_recv(s_receiver, delimiter, timeout)
             except asyncio.TimeoutError:
-                print('TIMEOUT')
+                print('[RECV][WARN] TIMEOUT')
                 if e.is_set():
                     print(SharedData.bold(f"[RECV][INFO] Event set!"))
                     return
