@@ -29,7 +29,18 @@ def get_external_ip():
 def load_config_new(json_file=None):
     data = load_config_json(json_file)
 
-    return SimpleNamespace(**data)
+    return SimpleNamespace(**prepare_config(data))
+
+
+def prepare_config(data: dict) -> dict:
+    # get json dict
+
+    data['END_MARK'] = data['END_MARK'].encode(data['ENCODING'])
+
+    if data['INIT_PORT'] not in data['EXCLUDE']:
+        data['EXCLUDE'].append(data['INIT_PORT'])
+
+    return data
 
 
 def load_config_json(json_file=None):
@@ -37,11 +48,7 @@ def load_config_json(json_file=None):
         source = json_file
     else:
         source = pkgutil.get_data(__package__, 'config.json')
-    data = json.loads(pkgutil.get_data(__package__, 'config.json'))
-    data['END_MARK'] = data['END_MARK'].encode(data['ENCODING'])
-
-    if data['INIT_PORT'] not in data['EXCLUDE']:
-        data['EXCLUDE'].append(data['INIT_PORT'])
+    data = json.loads(source)
 
     return data
 

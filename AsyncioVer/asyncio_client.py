@@ -3,7 +3,9 @@
 
 # TODO: fetch config from server
 
+import json
 import asyncio
+from types import SimpleNamespace
 from Shared import send_task, recv_task, tcp_recv
 
 try:
@@ -105,8 +107,10 @@ async def main():
 
     host, s_recv, s_send = await get_connection()
 
-    config = SharedData.load_config_new(await tcp_recv(s_recv))
     print(f'Config received from {host}.')
+    print(raw := await tcp_recv(s_recv))
+    config_json = json.loads(raw)
+    config = SimpleNamespace(**config_json)
 
     event = asyncio.Event()
     send_q = asyncio.Queue()
