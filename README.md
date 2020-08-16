@@ -6,7 +6,9 @@ Don't ddos this.
 
 Image Shows as if threaded version is lightening-fast, but actually runs same speed with consequent version.  
 Python's module 'Socket' blocks when recv is called, rendering all workers other than one useless.  
-Same goes for asyncio, despite wasting ton of time on it. Currently this repository is almost scraped - but was worth as now I learned how to play with threading and asyncio.
+
+Asyncio version runs a bit faster, but not sure if socket connection is actually running asynchronously or not.  
+Anyhow, this personal repo was worth trying as now I learned how to play with threading and asyncio.
 
 Trying to create own open-port tester, for use in so-called "Cyber-media, information Room" in ROKA.
 
