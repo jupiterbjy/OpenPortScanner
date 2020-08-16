@@ -6,11 +6,7 @@ Don't ddos this.
 
 Image Shows as if threaded version is lightening-fast, but actually runs same speed with consequent version.  
 Python's module 'Socket' blocks when recv is called, rendering all workers other than one useless.  
-Asyncio might help, but it's still in WIP.
-
-Still very unstable. Output on windows tend to print 2 lines at one while linux doesn't.  
-
-Only tested for server:client configuration as following: Windows-linux, Windows-Windows.
+Same goes for asyncio, despite wasting ton of time on it. Currently this repository is almost scraped - but was worth as now I learned how to play with threading and asyncio.
 
 Trying to create own open-port tester, for use in so-called "Cyber-media, information Room" in ROKA.
 
