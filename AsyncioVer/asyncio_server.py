@@ -64,7 +64,7 @@ async def get_connection(handler: Callable):
         try:
             port = int(input("Enter primary server port >> "))
             # port = 80
-            if port > 65536:
+            if port > 65535:
                 raise ValueError
 
         except ValueError:
