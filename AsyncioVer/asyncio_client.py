@@ -159,4 +159,4 @@ if __name__ == "__main__":
     import logging
 
     logging.getLogger("asyncio").setLevel(logging.DEBUG)
-    asyncio.run(main(), debug=True)
+    asyncio.run(main(), debug=False)

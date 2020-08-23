@@ -1,57 +1,46 @@
 import threading
 import socket
 import json
+from .Shared import tcp_recv, tcp_send, recv_task, send_task
 from itertools import chain
 from queue import Queue, Empty
 
 try:
     import SharedData
 except ImportError:
+    from os import getcwd
     from sys import path
 
-    path.insert(1, "../..")
-    path.insert(2, "..")
+    path.append(getcwd() + "/..")
     import SharedData
 
-# TODO: move global variables to locals.
+
 # TODO: change to logging instead of print
 # find port with this Power-shell script
 # Get-Process -Id (Get-NetTCPConnection -LocalPort 80).OwningProcess
 
 
-# setup
-config = SharedData.load_json_config()
-IP = SharedData.get_external_ip()
-TIMEOUT_FACTOR = config.SOCK_TIMEOUT
-read_b, write_b = SharedData.rw_bytes(
-    config.BYTE_SIZE, config.BYTE_ORDER, config.END_MARK, config.ENCODING
-)
-
-
 # Main connection start
-s_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+def get_main_connection():
+    s_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-print(f"[S][Info] Connect client to: {IP}:{config.INIT_PORT}")
-try:
-    s_sock.bind(("", config.INIT_PORT))
-except OSError:
-    print(SharedData.red(f"[S][Crit] Cannot open server at port {config.INIT_PORT}."))
-    exit()
-else:
-    s_sock.listen(1)
-    conn, addr = s_sock.accept()  # block until client signal
-    print(f"[S][Info] Connected.")
-
-
-# Results
-USED_PORTS = []
-SHUT_PORTS = []
+    print(f"[S][Info] Connect client to: {IP}:{config.INIT_PORT}")
+    try:
+        s_sock.bind(("", config.INIT_PORT))
+    except OSError:
+        print(SharedData.red(f"[S][Crit] Cannot open server at port {config.INIT_PORT}."))
+        exit()
+    else:
+        s_sock.listen(1)
+        conn, addr = s_sock.accept()  # block until client signal
+        print(f"[S][Info] Connected.")
+        return conn, addr
 
 
-def generate_queue():
-    print(f"Generating Queue from 1~{config.PORT_MAX}.")
+def generate_queue(max_port: int):
+    print(f"Generating Queue from 1~{max_port}.")
     q = Queue()
-    for i in range(1, config.PORT_MAX):
+    for i in range(1, max_port + 1):
         q.put(i)
 
     return q
@@ -119,20 +108,20 @@ def worker(id_, q, send, recv, event: threading.Event):
     send.put(70000)  # causing overflow to socket in client, stopping it.
 
 
-def send_thread(q: Queue, e: threading.Event):
+def send_thread(conn: socket.socket, q: Queue, stop_e: threading.Event, timeout):
     while True:
 
         try:
-            n = q.get(timeout=TIMEOUT_FACTOR)
+            n = q.get(timeout=timeout)
         except Empty:
-            if e.is_set():
+            if stop_e.is_set():
                 print("[S][SEND] Event Set!")
                 break
         else:
             q.task_done()
 
             try:
-                conn.send(write_b(n))
+                conn.send(n)
             except (ConnectionAbortedError, ConnectionResetError):
                 print("[S][SEND] Connection reset!")
                 break
@@ -161,13 +150,21 @@ def recv_thread(q: Queue, e: threading.Event):
 
 
 def main():
-    # just wrapping in function makes global to local variable, runs faster.
 
-    event = threading.Event()
-    work = generate_queue()
+    config = SharedData.load_json_config()
+
+    work = generate_queue(config.PORT_MAX)
+    delimiter = config.READ_UNTIL.encode(config.ENCODING)
+
+    start_event = threading.Event()
+    stop_event = threading.Event()
 
     send_q = Queue()
     recv_q = Queue()
+
+    # setup
+    ip = SharedData.get_external_ip()
+    timeout = config.SOCK_TIMEOUT
 
     server_thread = [
         threading.Thread(target=send_thread, args=[send_q, event]),

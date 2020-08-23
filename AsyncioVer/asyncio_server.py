@@ -1,19 +1,19 @@
 from typing import Callable
 from Shared import send_task, recv_task, tcp_send
 import asyncio
-
-# TODO: clean this json mess
+import logging
 
 try:
     import SharedData
-
-    print("DEBUGGING")
 except ImportError:
     from os import getcwd
     from sys import path
 
     path.append(getcwd() + "/..")
     import SharedData
+
+
+DEBUG = False
 
 # TODO: change to logging instead of print
 # find port with this Power-shell script
@@ -309,14 +309,13 @@ async def main():
     print(f"Used Ports  : {result['Occupied']}")
     print(f"Closed Ports: {result['Unreachable']}")
     print(f"Excluded    : {result['Excluded']}")
-    print(f"Combined    : {result}")
     print(f"\nAll other ports from 1~{last_port} is open.")
 
     SharedData.dump_result(result, 'tcp_scan_result')
 
 
 if __name__ == "__main__":
-    import logging
 
-    logging.getLogger("asyncio").setLevel(logging.DEBUG)
-    asyncio.run(main(), debug=True)
+    if DEBUG:
+        logging.getLogger("asyncio").setLevel(logging.DEBUG)
+    asyncio.run(main(), debug=DEBUG)

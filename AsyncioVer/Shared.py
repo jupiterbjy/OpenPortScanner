@@ -1,7 +1,7 @@
 from numbers import Number
-from os import environ
-
-environ["PYTHONASYNCIODEBUG"] = "1"
+# from os import environ
+#
+# environ["PYTHONASYNCIODEBUG"] = "1"
 import asyncio
 
 try:

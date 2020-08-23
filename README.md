@@ -7,6 +7,13 @@ Don't ddos this.
 Image Shows as if threaded version is lightening-fast, but actually runs same speed with consequent version.  
 Python's module 'Socket' blocks when recv is called, rendering all workers other than one useless.  
 
+Using all possible method I can think of to implement.
+
+***Currently only asyncio version workers, other versions are under refactoring based on it.***
+
+---
+### Explanation
+
 Asyncio version runs way faster, but not sure if socket connection is actually running asynchronously or not.  
 Anyhow, this personal repo was worth trying as now I learned how to play with threading and asyncio.
 
