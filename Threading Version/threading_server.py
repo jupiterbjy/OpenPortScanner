@@ -21,20 +21,33 @@ except ImportError:
 
 
 # Main connection start
-def get_main_connection():
+def get_main_connection(config):
+    ip = SharedData.get_external_ip()
     s_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    print(f"[S][Info] Connect client to: {IP}:{config.INIT_PORT}")
-    try:
-        s_sock.bind(("", config.INIT_PORT))
-    except OSError:
-        print(SharedData.red(f"[S][Crit] Cannot open server at port {config.INIT_PORT}."))
-        exit()
-    else:
-        s_sock.listen(1)
-        conn, addr = s_sock.accept()  # block until client signal
-        print(f"[S][Info] Connected.")
-        return conn, addr
+    while True:
+        try:
+            port = int(input("Enter primary server port >> "))
+            # port = 80
+            if port > 65535:
+                raise ValueError
+
+        except ValueError:
+            print("Wrong port value!")
+            continue
+
+        print(f"[S][INFO] Connect client to: {ip}:{port}")
+
+        try:
+            s_sock.bind(("", port))
+
+        except OSError:
+            print(SharedData.red(f"[S][CRIT] Cannot open server at port."))
+            raise
+
+        else:
+            conn, addr = s_sock.accept()  # block until client signal
+            return conn, addr
 
 
 def generate_queue(max_port: int):
@@ -46,112 +59,143 @@ def generate_queue(max_port: int):
     return q
 
 
-def worker(id_, q, send, recv, event: threading.Event):
-    q: Queue
-    send: Queue
-    recv: Queue
+def run_workers(
+    config,
+    works: Queue,
+    send: Queue,
+    recv: Queue,
+    in_use: Queue,
+    blocked: Queue,
+    e: threading.Event,
+):
 
-    while not q.empty():
+    delimiter = config.READ_UNTIL.encode(config.ENCODING)
+    excl = set(config.EXCLUDE)
 
-        # check eject event.
-        if event.is_set():
-            print(SharedData.purple(f"[SS{id_:2}][Warn] Worker {id_} stopping."))
-            return
+    workers = [
+        threading.Thread(
+            target=worker,
+            args=[
+                i,
+                works,
+                send,
+                recv,
+                excl,
+                in_use,
+                blocked,
+                e,
+                delimiter,
+                config.TIMEOUT,
+            ],
+        )
+        for i in range(config.WORKERS)
+    ]
 
-        # get next work.
-        p: int = q.get()
-        q.task_done()
+    for w in workers:
+        w.start()
 
-        # check if port is in blacklist.
-        if p in config.EXCLUDE:
-            print(SharedData.cyan(f"[SS{id_:2}][Info] Skipping Port {p}."))
-            continue
+    for w in workers:
+        w.join()
 
-        # receive worker announcement.
-        try:
-            worker_id = recv.get(timeout=TIMEOUT_FACTOR)
-        except Empty:  # Timeout
-            worker_id = 'NULL'
-
-        recv.task_done()
-        print(f"[SS{id_:2}][Info] Worker {worker_id} announce READY.")
-
-        print(f"[SS{id_:2}][Info] Sending port {p} to Client.")
-        send.put(p)
-
-        print(f"[SS{id_:2}][Info] Opening Port {p}.")
-        child_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        child_sock.settimeout(config.TIMEOUT)
-
-        try:
-            child_sock.bind(("", p))
-            child_sock.listen(1)
-            child_sock.accept()
-
-        except socket.timeout:
-            print(SharedData.red(f"[SS{id_:2}][Info] Port {p} Timeout."))
-            SHUT_PORTS.append(p)
-
-        except OSError:
-            print(SharedData.red(f"[SS{id_:2}][Warn] Port {p} in use."))
-            USED_PORTS.append(p)
-
-        else:
-            print(SharedData.green(f"[SS{id_:2}][Info] Port {p} is open."))
-
-        child_sock.close()
-
-    # Send end signal to client.
-    # first worker catching this signal will go offline.
-
-    print(SharedData.cyan(f"[SS{id_:2}][Info] Done. Sending stop signal."))
-    send.put(70000)  # causing overflow to socket in client, stopping it.
+    print(SharedData.bold("[S][info] All workers stopped."))
 
 
-def send_thread(conn: socket.socket, q: Queue, stop_e: threading.Event, timeout):
-    while True:
+def worker(
+    id_,
+    task_q,
+    send,
+    recv,
+    exclude: set,
+    used: Queue,
+    blocked: Queue,
+    event: threading.Event,
+    delimiter: bytes,
+    timeout=None,
+):
+    try:
+        while not task_q.empty() and not event.is_set():
 
-        try:
-            n = q.get(timeout=timeout)
-        except Empty:
-            if stop_e.is_set():
-                print("[S][SEND] Event Set!")
-                break
-        else:
-            q.task_done()
+            # receive worker announcement.
+            try:
+                worker_id = recv.get(timeout=timeout)
+                recv.task_done()
+            except Empty:
+                print(SharedData.red(f"[SS{id_:2}][Warn] Timeout."))
+                continue
+
+            print(f"[SS{id_:2}][INFO] Worker {worker_id} available.")
+
+            # get next work.
+            print(f"[SS{id_:2}][INFO] Getting new port.")
+
+            # if timeout getting port, either task is empty or just coroutine delayed.
+            try:
+                p: int = task_q.get(timeout=timeout)
+                task_q.task_done()
+            except Empty:
+                if task_q.empty():
+                    break
+                else:
+                    await recv.put(worker_id)
+                    continue
+                    # put back in and run again.
+
+            # check if port is in blacklist.
+            if p in exclude:
+                print(SharedData.cyan(f"[SS{id_:2}][INFO] Skipping Port {p}."))
+                continue
+
+            print(f"[SS{id_:2}][INFO] Sending port {p} to client.")
+            send.put(p)
+
+            print(f"[SS{id_:2}][INFO] Trying to serve port {p}.")
+            child_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            child_sock.settimeout(timeout)
 
             try:
-                conn.send(n)
-            except (ConnectionAbortedError, ConnectionResetError):
-                print("[S][SEND] Connection reset!")
-                break
+                child_sock.bind(("", p))
+                child_sock.listen(1)
+                child_sock.accept()
 
+            except socket.timeout:
+                print(SharedData.red(f"[SS{id_:2}][Warn] Port {p} timeout."))
+                blocked.put(p)
 
-def recv_thread(q: Queue, e: threading.Event):
-    conn.settimeout(TIMEOUT_FACTOR)
-    # making a vague assumption of timeout situation.
+            except OSError:
+                print(SharedData.red(f"[SS{id_:2}][Warn] Port {p} in use."))
+                used.put(p)
 
-    while True:
+            else:
+                print(SharedData.green(f"[SS{id_:2}][Info] Port {p} is open."))
 
-        try:
-            data = conn.recv(65536)
-        except (ConnectionAbortedError, ConnectionResetError):
-            break
-        except socket.timeout:
-            if e.is_set():
-                print(SharedData.red(f"[S][RECV] Timeout, closing RECV thread."))
-                break
-        else:
-            if data == config.END_MARK:
-                print(SharedData.green(f"[S][RECV] Received eof <{data}>"))
-                break
+            finally:
+                child_sock.close()
 
-            q.put(read_b(data))
+        # Send end signal to client.
+        # first worker catching this signal will go offline.
+
+        print(SharedData.cyan(f"[SS{id_:2}][INFO] Done. Sending stop signal."))
+        await send.put("DONE")  # causing int type-error on client side workers.
+
+    except Exception:
+        # trigger event to stop all threads.
+        print(SharedData.red(f"[SS{id_:2}][CRIT] Exception Event set!."))
+        event.set()
+        raise
+
+    if event.is_set():
+        print(SharedData.bold(f"[SS{id_:2}][WARN] Task Finished by event."))
+    else:
+        print(SharedData.bold(f"[SS{id_:2}][INFO] Task Finished."))
 
 
 def main():
 
     config = SharedData.load_json_config()
+    conn, addr = get_main_connection(config)
+
+    # Send config to client.
+    tcp_send(SharedData.load_config_raw(), conn)
 
     work = generate_queue(config.PORT_MAX)
     delimiter = config.READ_UNTIL.encode(config.ENCODING)
@@ -162,26 +206,18 @@ def main():
     send_q = Queue()
     recv_q = Queue()
 
-    # setup
-    ip = SharedData.get_external_ip()
-    timeout = config.SOCK_TIMEOUT
+    in_use = Queue()
+    failed = Queue()
 
     server_thread = [
-        threading.Thread(target=send_thread, args=[send_q, event]),
-        threading.Thread(target=recv_thread, args=[recv_q, event]),
+        threading.Thread(target=send_task, args=[send_q, stop_event, delimiter,]),
+        threading.Thread(target=recv_task, args=[recv_q, stop_event]),
     ]
 
-    workers = [
-        threading.Thread(target=worker, args=[i, work, send_q, recv_q, event])
-        for i in range(config.WORKERS)
-    ]
+    for t in server_thread:
+        t.start()
 
-    # start threads
-    for w in chain(server_thread, workers):  # just wanted to try out chain.
-        w.start()
-
-    for w in workers:  # I need to stop server thread somehow..
-        w.join()
+    run_workers(config, work, send_q, recv_q, in_use, failed, stop_event)
 
     event.set()
     print(SharedData.bold("[S][Info] All workers stopped."))

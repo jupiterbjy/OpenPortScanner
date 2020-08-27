@@ -51,6 +51,7 @@ async def main_handler(
         await gather_task
     except ConnectionResetError:
         print('Connection reset!')
+        gather_task.cancel()
 
     send.close()
     await send.wait_closed()
@@ -79,7 +80,7 @@ async def get_connection(handler: Callable):
 
         else:
             print(f"[S][INFO] Connect client to: {ip}:{port}")
-            return server_co
+            return server_co, port
 
 
 def generate_queue(max_port: int):
@@ -280,8 +281,9 @@ async def main():
         )
 
     # start server
-    server_co = await get_connection(handler)
+    server_co, port_primary = await get_connection(handler)
     await server_co.start_serving()
+    config.EXCLUDE.append(port_primary)
 
     # wait until connection is established, and handler started.
     await start_event.wait()
