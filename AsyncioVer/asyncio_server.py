@@ -16,6 +16,7 @@ except ImportError:
 DEBUG = False
 
 # TODO: change to logging instead of print
+# TODO: set recv send task as daemon to prevent No running loop error on end of script.
 # find port with this Power-shell script
 # Get-Process -Id (Get-NetTCPConnection -LocalPort 80).OwningProcess
 
