@@ -156,7 +156,22 @@ async def main():
 
 
 if __name__ == "__main__":
-    import logging
+    # import logging
+    # logging.getLogger("asyncio").setLevel(logging.DEBUG)
 
-    logging.getLogger("asyncio").setLevel(logging.DEBUG)
-    asyncio.run(main(), debug=False)
+    try:
+        assert isinstance(loop := asyncio.new_event_loop(), asyncio.ProactorEventLoop)
+        # No ProactorEventLoop is in asyncio on other OS, will raise AttributeError in that case.
+
+    except (AssertionError, AttributeError):
+        asyncio.run(main(), debug=False)
+
+    else:
+        print("Proactor Event loop wrapping Active.")
+        async def proactor_wrap(loop_: asyncio.ProactorEventLoop, fut: asyncio.coroutines):
+            await fut
+            loop_.stop()
+
+        loop.create_task(proactor_wrap(loop, main()))
+        loop.run_forever()
+

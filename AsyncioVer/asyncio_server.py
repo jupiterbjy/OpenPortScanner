@@ -1,7 +1,6 @@
 from typing import Callable
 from Shared import send_task, recv_task, tcp_send
 import asyncio
-import logging
 
 try:
     import SharedData
@@ -12,8 +11,8 @@ except ImportError:
     path.append(getcwd() + "/..")
     import SharedData
 
-
 DEBUG = False
+
 
 # TODO: change to logging instead of print
 # TODO: set recv send task as daemon to prevent No running loop error on end of script.
@@ -22,40 +21,44 @@ DEBUG = False
 
 
 # Main server handler start
-async def main_handler(
-    recv: asyncio.StreamReader,
-    send: asyncio.StreamWriter,
-    send_q: asyncio.Queue,
-    recv_q: asyncio.Queue,
+def handler_closure(
+    send_recv: [asyncio.Queue, asyncio.Queue],
     fail_ev: asyncio.Event,
     start_ev: asyncio.Event,
+    stop_ev: asyncio.Event,
     delimiter: bytes = b"\n",
     timeout=None,
 ):
-    """
-    Main handler of server.
-    Feed additional parameters with use of <lambda send, recv: main_handler(...)>,
-    """
+    async def main_handler(
+        recv: asyncio.StreamReader, send: asyncio.StreamWriter,
+    ):
+        """
+        Main handler of server.
+        """
 
-    print(f"[S][INFO] Connected.")
-    start_ev.set()  # start loading workers.
+        print(f"[S][INFO] Connected.")
+        start_ev.set()  # start loading workers.
 
-    server_tasks = (
-        send_task(send, send_q, fail_ev, delimiter, timeout),
-        recv_task(recv, recv_q, fail_ev, delimiter, timeout),
-    )
+        send_q, recv_q = send_recv
 
-    gather_task = asyncio.gather(*server_tasks)
-    # cancellation on asyncio.gather cause all coroutines in seq to cancel.
-    # gather_task.cancel()
-    try:
-        await gather_task
-    except ConnectionResetError:
-        print('Connection reset!')
-        gather_task.cancel()
+        server_tasks = (
+            send_task(send, send_q, fail_ev, delimiter, timeout),
+            recv_task(recv, recv_q, fail_ev, delimiter, timeout),
+        )
 
-    send.close()
-    await send.wait_closed()
+        gather_task = asyncio.gather(*server_tasks)
+
+        try:
+            await gather_task
+        except ConnectionResetError:
+            print("Connection reset!")
+            gather_task.cancel()
+        finally:
+            send.close()
+            await send.wait_closed()
+            stop_ev.set()
+
+    return main_handler
 
 
 async def get_connection(handler: Callable):
@@ -103,7 +106,7 @@ async def worker(
     unreachable: asyncio.Queue,
     event: asyncio.Event,
     delimiter: bytes,
-    timeout=None
+    timeout=None,
 ):
     async def worker_handler(
         reader: asyncio.StreamReader,
@@ -228,7 +231,18 @@ async def run_workers(
 
     workers = [
         asyncio.create_task(
-            worker(i, works, send, recv, excl, in_use, unreachable, e, delimiter, config.TIMEOUT)
+            worker(
+                i,
+                works,
+                send,
+                recv,
+                excl,
+                in_use,
+                unreachable,
+                e,
+                delimiter,
+                config.TIMEOUT,
+            )
         )
         for i in range(config.WORKERS)
     ]
@@ -249,14 +263,15 @@ def async_q_to_list(q: asyncio.Queue) -> list:
 
 
 async def main():
-
     config = SharedData.load_json_config()
 
     work = generate_queue(config.PORT_MAX)
     delimiter = config.READ_UNTIL.encode(config.ENCODING)
+    timeout = config.TIMEOUT
 
-    start_event = asyncio.Event()
-    stop_event = asyncio.Event()
+    started = asyncio.Event()
+    fail_trigger = asyncio.Event()
+    stop = asyncio.Event()
 
     send_q = asyncio.Queue()
     recv_q = asyncio.Queue()
@@ -265,21 +280,15 @@ async def main():
     failed = asyncio.Queue()
 
     # handler for primary connection.
+    handle = handler_closure([send_q, recv_q], fail_trigger, started, stop, delimiter, timeout)
+
     async def handler(recv, send):
         # send config to client.
         print("Sending config to client.")
         await tcp_send(SharedData.load_config_raw(), send)
 
-        await main_handler(
-            recv,
-            send,
-            send_q,
-            recv_q,
-            stop_event,
-            start_event,
-            delimiter,
-            config.TIMEOUT,
-        )
+        await handle(recv, send)
+        send.close()
 
     # start server
     server_co, port_primary = await get_connection(handler)
@@ -287,12 +296,14 @@ async def main():
     config.EXCLUDE.append(port_primary)
 
     # wait until connection is established, and handler started.
-    await start_event.wait()
+    await started.wait()
 
     # start workers
-    await run_workers(config, work, send_q, recv_q, in_use, failed, stop_event)
+    await run_workers(config, work, send_q, recv_q, in_use, failed, stop)
 
-    stop_event.set()
+    fail_trigger.set()
+    await stop.wait()
+
     server_co.close()
     await server_co.wait_closed()
 
@@ -314,11 +325,29 @@ async def main():
     print(f"Excluded    : {result['Excluded']}")
     print(f"\nAll other ports from 1~{last_port} is open.")
 
-    SharedData.dump_result(result, 'tcp_scan_result')
+    SharedData.dump_result(result, "tcp_scan_result")
 
 
 if __name__ == "__main__":
 
     if DEBUG:
+        import logging
+
         logging.getLogger("asyncio").setLevel(logging.DEBUG)
-    asyncio.run(main(), debug=DEBUG)
+
+    try:
+        assert isinstance(loop := asyncio.new_event_loop(), asyncio.ProactorEventLoop)
+        # No ProactorEventLoop is in asyncio on other OS, will raise AttributeError in that case.
+
+    except (AssertionError, AttributeError):
+        asyncio.run(main(), debug=False)
+
+    else:
+        print("Proactor Event loop wrapping Active.")
+
+        async def proactor_wrap(loop_: asyncio.ProactorEventLoop, fut: asyncio.coroutines):
+            await fut
+            loop_.stop()
+
+        loop.create_task(proactor_wrap(loop, main()))
+        loop.run_forever()
