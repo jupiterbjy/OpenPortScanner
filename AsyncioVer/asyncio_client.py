@@ -1,7 +1,6 @@
 # from os import environ
 # environ['PYTHONASYNCIODEBUG'] = '1'
 
-# TODO: fetch config from server
 
 import json
 import asyncio

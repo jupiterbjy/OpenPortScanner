@@ -1,8 +1,10 @@
 from numbers import Number
-# from os import environ
-#
-# environ["PYTHONASYNCIODEBUG"] = "1"
+import logging
 import asyncio
+
+
+logger = logging.getLogger("ASYNC_PORT_TEST")
+
 
 try:
     import SharedData  # only works because pycharm set working directory to project.

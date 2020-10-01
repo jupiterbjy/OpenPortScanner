@@ -15,6 +15,7 @@ DEBUG = False
 
 
 # TODO: change to logging instead of print
+# TODO: change wrongful *task_done calls and move it to end of each iteration.
 # TODO: set recv send task as daemon to prevent No running loop error on end of script.
 # find port with this Power-shell script
 # Get-Process -Id (Get-NetTCPConnection -LocalPort 80).OwningProcess
@@ -330,10 +331,6 @@ async def main():
 
 if __name__ == "__main__":
 
-    if DEBUG:
-        import logging
-
-        logging.getLogger("asyncio").setLevel(logging.DEBUG)
 
     try:
         assert isinstance(loop := asyncio.new_event_loop(), asyncio.ProactorEventLoop)
